@@ -1,0 +1,65 @@
+[project]
+name = "ehos-backend-api"
+version = "0.1.0"
+description = "EHOS Backend API — Enterprise Hospitality Operations & Suite"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29.0",
+    "greenlet>=3.0.0",
+    # SMTP delivery (7e) dan email-validator (schemas crm/rfp) — dep runtime.
+    "aiosmtplib>=3.0.0",
+    "pydantic>=2.7.0",
+    # EmailStr (schemas crm/rfp) butuh validator crate runtime.
+    "email-validator>=2.1.0",
+    "pydantic-settings>=2.3.0",
+    "alembic>=1.13.1",
+    "python-jose[cryptography]>=3.3.0",
+    "argon2-cffi>=23.1.0",
+    "redis>=5.0.0",
+    "rq>=1.16.0",
+    "geoalchemy2>=0.15.0",
+    "shapely>=2.0.3",
+    "python-multipart>=0.0.9",
+    "openpyxl>=3.1.0",
+    "pypdf>=4.0.0",
+    "httpx>=0.27.0",
+    "click>=8.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+    "aiosmtplib>=3.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+per-file-ignores = { "app/seed/checklist_bank.py" = ["E501"], "tests/test_users_rbac.py" = ["E501"], "tests/test_translations.py" = ["E501"] }
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/main.py", "app/config.py", "alembic/*"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
