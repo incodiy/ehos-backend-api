@@ -5,6 +5,7 @@ import uuid
 UUIDT = uuid.UUID
 from datetime import date
 from typing import Any
+from app.models.users import User
 
 from geoalchemy2 import Geography
 from sqlalchemy import (
@@ -36,6 +37,7 @@ class Brand(Base, TimestampMixin, SoftDeleteMixin):
     code: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     tier: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE", server_default="ACTIVE")
 
 
 class Province(Base, TimestampMixin, SoftDeleteMixin):
@@ -56,6 +58,7 @@ class Region(Base, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     country: Mapped[str | None] = mapped_column(String(50))
     sales_region: Mapped[str | None] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE", server_default="ACTIVE")
 
 
 class Hotel(Base, TimestampMixin, SoftDeleteMixin):

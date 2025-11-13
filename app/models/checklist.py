@@ -7,8 +7,10 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -20,8 +22,13 @@ from sqlalchemy import BigInteger, Identity
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from typing import TYPE_CHECKING
+
 from app.db.session import Base
 from app.models.mixins import SoftDeleteMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.users import User
 
 UUID_PK = PG_UUID(as_uuid=True)
 BIGINT = BigInteger()
@@ -29,7 +36,12 @@ BIGINT = BigInteger()
 
 class ChecklistTemplate(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "checklist_templates"
-    __table_args__ = (UniqueConstraint("department", "name", "version"),)
+    __table_args__ = (
+        UniqueConstraint("department", "name", "version"),
+        CheckConstraint("status IN ('DRAFT', 'LOCKED', 'ARCHIVED')", name="chk_checklist_templates_status"),
+        CheckConstraint("department IN ('GM', 'HOUSEKEEPING', 'KITCHEN_FB', 'SECURITY_RISK')", name="chk_checklist_templates_dept"),
+        Index("ix_checklist_templates_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     uuid: Mapped[UUIDT] = mapped_column(UUID_PK, unique=True, nullable=False, server_default=func.gen_random_uuid())
@@ -64,7 +76,13 @@ class ChecklistSection(Base, TimestampMixin, SoftDeleteMixin):
 
 class ChecklistItem(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "checklist_items"
-    __table_args__ = (UniqueConstraint("section_id", "code"),)
+    __table_args__ = (
+        UniqueConstraint("section_id", "code"),
+        CheckConstraint(
+            "rubric_type IN ('TRAFFIC_LIGHT', 'NUMERIC_SCALE', 'MULTI_ROOM', 'BINARY_COUNT')",
+            name="chk_checklist_items_rubric",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     uuid: Mapped[UUIDT] = mapped_column(UUID_PK, unique=True, nullable=False, server_default=func.gen_random_uuid())
