@@ -54,6 +54,35 @@ class LeadOut(BaseModel):
     updated_at: datetime | None
 
 
+class LeadKanbanRowOut(BaseModel):
+    """Row list leads utk kanban CRM (F-07) — menambahkan `followup_due`
+    (badge overlay di kartu), `hotel_code`, `owner_name` dari sisi server
+    sehingga kartu War Room tidak perlu N+1 lookup per row di klien.
+    """
+
+    id: uuid.UUID
+    lead_no: str
+    hotel_id: uuid.UUID
+    source: str
+    institution_type: str
+    company_name: str
+    pic_name: str | None = None
+    pic_phone: str | None = None
+    pic_email: str | None = None
+    province_id: uuid.UUID | None = None
+    status: str
+    lost_reason: str | None = None
+    next_followup_at: datetime | None = None
+    amount_est: float | None = None
+    owner_id: uuid.UUID
+    referred_from_hotel_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+    followup_due: bool
+    hotel_code: str | None = None
+    owner_name: str | None = None
+
+
 class LeadActivityOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,6 +106,7 @@ class LeadCreateRequest(BaseModel):
     province_id: HybridId | None = None
     amount_est: float | None = Field(default=None, ge=0)
     next_followup_at: datetime | None = None
+    owner_id: HybridId | None = None
 
 
 class LeadUpdateRequest(BaseModel):
@@ -85,9 +115,14 @@ class LeadUpdateRequest(BaseModel):
     next_followup_at: datetime | None = None
     amount_est: float | None = Field(default=None, ge=0)
     owner_id: HybridId | None = None
+    company_name: str | None = Field(default=None, min_length=2, max_length=255)
+    institution_type: INSTITUTION_TYPE | None = None
+    source: LEAD_SOURCE | None = None
+    province_id: HybridId | None = None
     pic_name: str | None = Field(default=None, max_length=255)
     pic_phone: str | None = Field(default=None, max_length=20)
     pic_email: EmailStr | None = None
+
 
 
 class AddActivityRequest(BaseModel):
@@ -122,6 +157,21 @@ class QuotationOut(BaseModel):
     quotation_no: str
     lead_id: uuid.UUID = Field(validation_alias=AliasPath("lead", "uuid"))
     hotel_id: uuid.UUID = Field(validation_alias=AliasPath("hotel", "uuid"))
+    company_name: str | None = Field(
+        default=None, validation_alias=AliasPath("lead", "company_name")
+    )
+    lead_no: str | None = Field(
+        default=None, validation_alias=AliasPath("lead", "lead_no")
+    )
+    institution_type: str | None = Field(
+        default=None, validation_alias=AliasPath("lead", "institution_type")
+    )
+    hotel_code: str | None = Field(
+        default=None, validation_alias=AliasPath("hotel", "code")
+    )
+    hotel_name: str | None = Field(
+        default=None, validation_alias=AliasPath("hotel", "name")
+    )
     event_date: date | None
     event_name: str | None
     package_type: str
@@ -160,14 +210,41 @@ class QuotationCreateRequest(BaseModel):
     discount_amount: float = Field(default=0, ge=0)
 
 
+class QuotationUpdateRequest(BaseModel):
+    """Update status, diskon approval, atau rincian quotation (F-09)."""
+
+    status: QUOTATION_STATUS | None = None
+    discount_approval_status: Literal["APPROVED", "REJECTED"] | None = None
+    event_name: str | None = Field(default=None, max_length=255)
+    event_date: date | None = None
+    pax_count: int | None = Field(default=None, ge=1, le=10000)
+    gross_amount: float | None = Field(default=None, gt=0)
+    discount_amount: float | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+
 class BillingMilestoneOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID = Field(validation_alias="uuid")
     quotation_id: uuid.UUID = Field(validation_alias=AliasPath("quotation", "uuid"))
+    quotation_no: str | None = Field(
+        default=None, validation_alias=AliasPath("quotation", "quotation_no")
+    )
+    hotel_name: str | None = Field(
+        default=None, validation_alias=AliasPath("quotation", "hotel", "name")
+    )
+    hotel_code: str | None = Field(
+        default=None, validation_alias=AliasPath("quotation", "hotel", "code")
+    )
+    event_name: str | None = Field(
+        default=None, validation_alias=AliasPath("quotation", "event_name")
+    )
     milestone_type: str
     doc_no: str | None
     doc_key: str | None
+    doc_url: str | None = None
     status: str
     amount: float | None
     due_date: date

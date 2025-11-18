@@ -17,11 +17,14 @@ class TokenPair(BaseModel):
     refresh_token: str
 
 
+class LoginData(TokenPair):
+    user: UserOut
+
+
 class LoginResponse(BaseModel):
     success: bool = True
     message: str | None = "Login berhasil"
-    data: TokenPair
-    user: UserOut
+    data: LoginData
 
 
 class RefreshRequest(BaseModel):

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import AliasPath, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasPath, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import HybridId
 
@@ -72,6 +72,44 @@ class ItemCreateRequest(BaseModel):
     na_allowed: bool = False
     is_life_safety: bool = False
     sort_order: int = 0
+
+    @field_validator("max_score", mode="after")
+    @classmethod
+    def _clamp_to_rubric(cls, v: float, info) -> float:
+        rubric = info.data.get("rubric_type")
+        if rubric == RubricType.TRAFFIC_LIGHT or rubric == RubricType.MULTI_ROOM:
+            if v > 0 and v % 90 != 0:
+                raise ValueError("TRAFFIC_LIGHT / MULTI_ROOM max_score kelipatan 90")
+        return v
+
+
+class ItemUpdateRequest(BaseModel):
+    """Konfigurasi rubrik item (PRD-F-01) — semua field opsional, minimal satu diisi."""
+
+    question_text: str | None = Field(default=None, min_length=3)
+    rubric_type: RubricType | None = None
+    max_score: float | None = Field(default=None, gt=0, le=1000)
+    weight: float | None = Field(default=None, gt=0, le=100)
+    na_allowed: bool | None = None
+    is_life_safety: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "ItemUpdateRequest":
+        if not any(
+            f is not None
+            for f in (
+                self.question_text,
+                self.rubric_type,
+                self.max_score,
+                self.weight,
+                self.na_allowed,
+                self.is_life_safety,
+                self.sort_order,
+            )
+        ):
+            raise ValueError("minimal satu field rubrik diisi")
+        return self
 
     @field_validator("max_score", mode="after")
     @classmethod

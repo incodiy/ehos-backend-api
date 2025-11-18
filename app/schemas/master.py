@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field
 
+from app.schemas.checklist import BrandTier
+
 
 class HotelGeoOut(BaseModel):
     lat: float
@@ -32,30 +34,48 @@ class HotelOut(BaseModel):
     rom_name: str | None = None
 
 
+class HotelGeoIn(BaseModel):
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lng: float = Field(..., ge=-180.0, le=180.0)
+
+
+class HotelCreateRequest(BaseModel):
+    code: str = Field(..., min_length=2, max_length=10, pattern="^[A-Z0-9_-]+$")
+    name: str = Field(..., min_length=2, max_length=255)
+    brand_id: uuid.UUID
+    region_id: uuid.UUID
+    province_id: uuid.UUID
+    city: str = Field(..., min_length=2, max_length=100)
+    geo: HotelGeoIn
+    geofence_radius_meters: int = Field(default=200, ge=50, le=5000)
+    mice_facilities: dict[str, Any] | None = None
+    gm_id: uuid.UUID | None = None
+    rom_id: uuid.UUID | None = None
+    opening_date: str | None = None
+    status: str = Field(default="ACTIVE", pattern="^(ACTIVE|TEMPORARILY_CLOSED|TERMINATED)$")
+
+
 class HotelUpdateRequest(BaseModel):
-    name: str | None = None
+    code: str | None = Field(default=None, min_length=2, max_length=10)
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    brand_id: uuid.UUID | None = None
+    region_id: uuid.UUID | None = None
+    province_id: uuid.UUID | None = None
+    city: str | None = None
+    geo: HotelGeoIn | None = None
     geofence_radius_meters: int | None = Field(default=None, ge=50, le=5000)
     mice_facilities: dict[str, Any] | None = None
+    gm_id: uuid.UUID | None = None
+    rom_id: uuid.UUID | None = None
+    opening_date: str | None = None
+    terminate_date: str | None = None
     status: str | None = Field(default=None, pattern="^(ACTIVE|TEMPORARILY_CLOSED|TERMINATED)$")
 
 
-class BrandOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID = Field(validation_alias="uuid")
-    code: str
-    name: str
-    tier: str
+from app.schemas.brand import BrandOut, BrandTier, BrandTierUpdateRequest
 
 
-class RegionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID = Field(validation_alias="uuid")
-    code: str
-    name: str
-    country: str | None = None
-    sales_region: str | None = None
+from app.schemas.region import RegionOut
 
 
 class ProvinceOut(BaseModel):
@@ -67,7 +87,7 @@ class ProvinceOut(BaseModel):
 
 
 class DepartmentOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: uuid.UUID = Field(validation_alias="uuid")
     hotel_id: uuid.UUID = Field(validation_alias=AliasPath("hotel", "uuid"))

@@ -1,8 +1,10 @@
+from app.schemas.audit import AuditLogOut
 from app.schemas.auth import (
     ActiveHotelResponse,
     HotelOut,
     HotelScopeItem,
     LocaleRequest,
+    LoginData,
     LoginRequest,
     LoginResponse,
     MePayload,
@@ -20,10 +22,12 @@ from app.schemas.users import (
 )
 
 __all__ = [
+    "AuditLogOut",
     "ActiveHotelResponse",
     "HotelOut",
     "HotelScopeItem",
     "LocaleRequest",
+    "LoginData",
     "LoginRequest",
     "LoginResponse",
     "MePayload",

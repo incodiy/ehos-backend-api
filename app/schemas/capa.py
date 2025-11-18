@@ -19,7 +19,7 @@ from app.schemas.common import HybridId
 MediaPhase = Literal["BEFORE", "AFTER"]
 CameraSource = Literal["LIVE_CAMERA"]
 
-CAPA_STATUSES = {"OPEN", "AWAITING_GM", "AWAITING_QA", "CLOSED"}
+CAPA_STATUSES = {"OPEN", "IN_PROGRESS", "AWAITING_GM", "AWAITING_QA", "CLOSED"}
 
 
 class CapaTicketOut(BaseModel):
@@ -56,6 +56,9 @@ class CapaTicketOut(BaseModel):
     closed_by: uuid.UUID | None = Field(
         default=None, validation_alias=AliasPath("closed_by_user", "uuid")
     )
+    # — dihitung runtime (bukan kolom ORM); None bila belum di-set endpoint —
+    sla_status: str | None = None
+    overdue: bool | None = None
 
 
 class CapaHistoryOut(BaseModel):
@@ -92,6 +95,15 @@ class CapaMediaPresignOut(BaseModel):
     expires_in: int = 420
 
 
+class CapaMediaPresignGetOut(BaseModel):
+    """Presigned GET URL utk menampilkan bukti media (verification hub — display)."""
+
+    media_id: uuid.UUID
+    object_key: str
+    presigned_url: str
+    expires_in: int = 300
+
+
 class CapaMediaConfirmRequest(BaseModel):
     object_key: str | None = Field(
         default=None, description="Guard path: wajib sama dengan object_key tersimpan"
@@ -104,8 +116,21 @@ class CapaMediaListOut(BaseModel):
 
 
 class CapaTicketCreateRequest(BaseModel):
-    finding_id: HybridId
+    finding_id: HybridId | None = None
+    hotel_id: HybridId | None = None
+    department: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=3)
+    title: str | None = None
+    description: str | None = None
     assigned_to: HybridId | None = None
+
+
+class CapaTicketUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=3)
+    assigned_to: HybridId | None = None
+    due_at: datetime | None = None
 
 
 class AssignTicketRequest(BaseModel):
