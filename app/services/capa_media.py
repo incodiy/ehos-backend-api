@@ -14,14 +14,13 @@ menyajikan komparasi bukti BEFORE vs AFTER utk Four-Eyes verification hub.
 
 from __future__ import annotations
 
-import uuid
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import CapaMedia
 from app.services.capa_lifecycle import InvalidTransitionError
 from app.services.media_storage import (
     StorageUnavailableError,
+    presigned_get_url,
     presigned_put_url,
     verify_object,
 )
@@ -78,3 +77,15 @@ def before_after_summary(medias: list[CapaMedia]) -> dict:
         "has_verified_after": verified > 0,
         "ready": verified > 0,
     }
+
+
+def presign_ticket_media_get(media: CapaMedia, ticket_id: int) -> str:
+    """Presigned GET URL utk menampilkan bukti media (verification hub).
+
+    Hanya media VERIFIED yang benar-benar ada di object store; media PENDING/
+    PRESIGNED/FAILED tidak akan ditemukan saat diakses → G4 (honest data).
+    """
+    ensure_owned(media, ticket_id)
+    if media.upload_status != VERIFIED:
+        raise InvalidTransitionError("Media belum VERIFIED — bukti belum tervalidasi")
+    return presigned_get_url(media.object_key)

@@ -189,3 +189,72 @@ async def _upsert_quotation(
     quotation.updated_by = actor_id
     await session.flush()
     return quotation
+
+
+async def update_quotation_status(
+    session: AsyncSession,
+    quotation: Quotation,
+    target_status: str,
+    actor_id: int,
+    *,
+    note: str | None = None,
+) -> Quotation:
+    """Transisi status FSM quotation (DRAFT → SENT → ACCEPTED / DECLINED).
+
+    Guard:
+    - Status terminal (ACCEPTED/DECLINED) tidak dapat diubah lagi.
+    - Transisi ke SENT dilarang jika discount_approval_status masih PENDING.
+    - Transisi ke ACCEPTED otomatis menyinkronkan status lead ke CONFIRMED.
+    """
+    target_status = target_status.upper()
+    if target_status not in QUOTATION_STATUSES:
+        raise QuotationCreateError(f"Status tidak valid: {target_status} (legal: {sorted(QUOTATION_STATUSES)})")
+
+    if quotation.status in {"ACCEPTED", "DECLINED"}:
+        raise QuotationCreateError(f"Quotation dalam status terminal {quotation.status} — tidak dapat diubah")
+
+    if target_status == "SENT" and quotation.discount_approval_status == "PENDING":
+        raise QuotationCreateError("Diskon penawaran masih berstatus PENDING — butuh approval GM sebelum dikirim")
+
+    old_status = quotation.status
+    quotation.status = target_status
+    quotation.updated_by = actor_id
+
+    lead = await session.get(Lead, quotation.lead_id)
+    if lead:
+        if target_status == "ACCEPTED" and lead.status != "LOST":
+            lead.status = "CONFIRMED"
+            lead.updated_by = actor_id
+        activity_note = note or f"Status quotation {quotation.quotation_no} diubah: {old_status} → {target_status}"
+        await _log_activity(session, lead, activity_type="NOTE", note=activity_note, actor_id=actor_id)
+
+    await session.flush()
+    return quotation
+
+
+async def review_quotation_discount(
+    session: AsyncSession,
+    quotation: Quotation,
+    decision: str,
+    actor_id: int,
+    *,
+    note: str | None = None,
+) -> Quotation:
+    """Approval diskon GM/Corporate (F-09 matrix).
+
+    decision: APPROVED | REJECTED
+    """
+    decision = decision.upper()
+    if decision not in {"APPROVED", "REJECTED"}:
+        raise QuotationCreateError(f"Keputusan approval diskon tidak valid: {decision} (legal: APPROVED, REJECTED)")
+
+    quotation.discount_approval_status = decision
+    quotation.updated_by = actor_id
+
+    lead = await session.get(Lead, quotation.lead_id)
+    if lead:
+        activity_note = note or f"Diskon quotation {quotation.quotation_no} {decision.lower()} oleh GM"
+        await _log_activity(session, lead, activity_type="NOTE", note=activity_note, actor_id=actor_id)
+
+    await session.flush()
+    return quotation

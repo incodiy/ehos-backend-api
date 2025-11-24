@@ -37,12 +37,12 @@ from app.models import CapaMedia, CapaStatusHistory, CapaTicket
 
 # action -> status-status sumber yang legal
 VALID_FROM: dict[str, frozenset[str]] = {
-    "resolve": frozenset({"OPEN", "AWAITING_GM"}),
+    "resolve": frozenset({"OPEN", "IN_PROGRESS", "AWAITING_GM"}),
     "gm_approve": frozenset({"AWAITING_GM"}),
     "gm_reject": frozenset({"AWAITING_GM"}),
     "qa_close": frozenset({"AWAITING_QA"}),
     "qa_reopen": frozenset({"AWAITING_QA"}),
-    "escalate": frozenset({"OPEN", "AWAITING_GM", "AWAITING_QA"}),
+    "escalate": frozenset({"OPEN", "IN_PROGRESS", "AWAITING_GM", "AWAITING_QA"}),
 }
 
 TO_STATUS: dict[str, str] = {
@@ -203,13 +203,15 @@ async def assign_ticket(
     actor_id: uuid.UUID,
     note: str | None = None,
 ) -> CapaTicket:
-    """Assign ke resolver (HOD/EHK). Bukan transisi status — history dictatat
-    dengan from == to agar jejak penugasan tetap (openapi /history)."""
+    """Assign ke resolver (HOD/EHK). Jika tiket masih OPEN, transisikan ke IN_PROGRESS."""
     if ticket.status == CLOSED:
         raise InvalidTransitionError("Cannot assign a CLOSED ticket")
+    prev_status = ticket.status
     ticket.assigned_to = assigned_to
-    await _history(session, ticket, ticket.status, ticket.status, actor_id,
-                   note or f"Assigned to {assigned_to}")
+    if ticket.status == "OPEN":
+        ticket.status = "IN_PROGRESS"
+    await _history(session, ticket, prev_status, ticket.status, actor_id,
+                   note or f"Assigned to resolver")
     return ticket
 
 

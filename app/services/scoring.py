@@ -155,10 +155,8 @@ def evaluate_multi_room(
     )
 
 
-# ─── brand_tier-aware template resolution ─────────────────────────────────
-
 def resolve_tier_key(department: str, brand_tier: str | None):
-    """Iterasi kunci lookup template: brand_tier persis → fallback universal.
+    """Iterasi kunci lookup template: brand_tier persis -> variasi kapitalisasi -> fallback universal.
 
     Contract (F-01): hotel bertier memakai template dengan brand_tier yang
     sama; bila tidak ada, turun ke template universal (brand_tier=None).
@@ -166,6 +164,12 @@ def resolve_tier_key(department: str, brand_tier: str | None):
     """
     if brand_tier:
         yield (department, brand_tier)
+        if brand_tier.capitalize() != brand_tier:
+            yield (department, brand_tier.capitalize())
+        if brand_tier.upper() != brand_tier:
+            yield (department, brand_tier.upper())
+        if brand_tier.lower() != brand_tier:
+            yield (department, brand_tier.lower())
     yield (department, None)
 
 
