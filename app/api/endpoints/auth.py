@@ -37,6 +37,7 @@ from app.schemas.auth import (
     HotelScopeItem,
     HotelsResponse,
     LocaleRequest,
+    LoginData,
     LoginRequest,
     LoginResponse,
     MePayload,
@@ -96,8 +97,11 @@ async def login(body: LoginRequest, session: DbSession) -> LoginResponse:
     await session.refresh(user)
 
     return LoginResponse(
-        data=TokenPair(access_token=access_token, refresh_token=refresh_token),
-        user=_user_out(user),
+        data=LoginData(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=_user_out(user),
+        ),
     )
 
 

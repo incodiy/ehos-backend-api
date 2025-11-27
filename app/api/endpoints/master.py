@@ -1,17 +1,22 @@
 """Master data endpoints — openapi.yaml `/hotels`, `/brands`, `/regions`, `/provinces`."""
 
+from datetime import date
+import uuid
 from fastapi import APIRouter, HTTPException
 from geoalchemy2 import Geometry
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import Integer, func, select, text
 from sqlalchemy.orm import aliased
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.identity import get_by_uuid
-from app.models import Brand, Hotel, Province, Region, User
+from app.models import Brand, Hotel, HotelDepartment, Province, Region, User
 from app.schemas.common import Envelope, HybridId, Paginated, PaginationMeta
 from app.schemas.master import (
     BrandOut,
+    BrandTierUpdateRequest,
     DepartmentOut,
+    HotelCreateRequest,
     HotelOut,
     HotelUpdateRequest,
     ProvinceOut,
@@ -122,6 +127,81 @@ async def list_hotels(
     )
 
 
+@router.post("/hotels", response_model=Envelope[HotelOut], status_code=201)
+async def create_hotel(
+    body: HotelCreateRequest,
+    current: CurrentUser,
+    session: DbSession,
+) -> Envelope[HotelOut]:
+    await _require_master_write(current, session)
+
+    existing = await session.scalar(
+        select(Hotel).where(Hotel.code == body.code.upper(), Hotel.deleted_at.is_(None))
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail=f"Hotel dengan kode {body.code.upper()} sudah ada")
+
+    brand = await get_by_uuid(session, Brand, body.brand_id)
+    if brand is None:
+        raise HTTPException(status_code=404, detail="Brand tidak ditemukan")
+    region = await get_by_uuid(session, Region, body.region_id)
+    if region is None:
+        raise HTTPException(status_code=404, detail="Region tidak ditemukan")
+    province = await get_by_uuid(session, Province, body.province_id)
+    if province is None:
+        raise HTTPException(status_code=404, detail="Province tidak ditemukan")
+
+    gm = await get_by_uuid(session, User, body.gm_id) if body.gm_id else None
+    rom = await get_by_uuid(session, User, body.rom_id) if body.rom_id else None
+
+    opening_d = None
+    if body.opening_date:
+        try:
+            opening_d = date.fromisoformat(body.opening_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Format opening_date harus YYYY-MM-DD")
+
+    geo_point = WKTElement(f"SRID=4326;POINT({body.geo.lng} {body.geo.lat})")
+
+    hotel = Hotel(
+        code=body.code.upper(),
+        name=body.name.strip(),
+        brand_id=brand.id,
+        region_id=region.id,
+        province_id=province.id,
+        city=body.city.strip(),
+        geo=geo_point,
+        geofence_radius_meters=body.geofence_radius_meters,
+        mice_facilities=body.mice_facilities,
+        gm_id=gm.id if gm else None,
+        rom_id=rom.id if rom else None,
+        opening_date=opening_d,
+        status=body.status,
+    )
+    session.add(hotel)
+    await session.flush()
+
+    standard_depts = [
+        ("FO", "Front Office"),
+        ("HK", "Housekeeping"),
+        ("KFB", "Kitchen & FB"),
+        ("SEC", "Security"),
+        ("ENG", "Engineering"),
+        ("SALES", "Sales & Marketing"),
+    ]
+    for d_code, d_name in standard_depts:
+        session.add(
+            HotelDepartment(
+                hotel_id=hotel.id,
+                code=d_code,
+                name=d_name,
+            )
+        )
+
+    await session.commit()
+    return await get_hotel(str(hotel.uuid), current, session)
+
+
 @router.get("/hotels/{code}", response_model=Envelope[HotelOut])
 async def get_hotel(
     code: str,
@@ -129,9 +209,21 @@ async def get_hotel(
     session: DbSession,
 ) -> Envelope[HotelOut]:
     stmt, _, _ = _hotel_row_columns()
+    is_uuid = False
+    try:
+        target_uuid = uuid.UUID(code)
+        is_uuid = True
+    except (ValueError, AttributeError):
+        pass
+
+    if is_uuid:
+        cond = (Hotel.uuid == target_uuid)
+    else:
+        cond = (Hotel.code == code.upper())
+
     row = (
         await session.execute(
-            stmt.where(Hotel.code == code.upper(), Hotel.deleted_at.is_(None))
+            stmt.where(cond, Hotel.deleted_at.is_(None))
         )
     ).mappings().first()
     if row is None:
@@ -147,23 +239,129 @@ async def update_hotel(
     session: DbSession,
 ) -> Envelope[HotelOut]:
     await _require_master_write(current, session)
-    hotel = await session.scalar(
-        select(Hotel).where(Hotel.code == code.upper(), Hotel.deleted_at.is_(None))
-    )
+
+    is_uuid = False
+    try:
+        target_uuid = uuid.UUID(code)
+        is_uuid = True
+    except (ValueError, AttributeError):
+        pass
+
+    if is_uuid:
+        hotel = await session.scalar(
+            select(Hotel).where(Hotel.uuid == target_uuid, Hotel.deleted_at.is_(None))
+        )
+    else:
+        hotel = await session.scalar(
+            select(Hotel).where(Hotel.code == code.upper(), Hotel.deleted_at.is_(None))
+        )
+
     if hotel is None:
         raise HTTPException(status_code=404, detail="Hotel tidak ditemukan")
 
+    if body.code is not None and body.code.upper() != hotel.code:
+        dup = await session.scalar(
+            select(Hotel).where(
+                Hotel.code == body.code.upper(),
+                Hotel.id != hotel.id,
+                Hotel.deleted_at.is_(None),
+            )
+        )
+        if dup is not None:
+            raise HTTPException(status_code=409, detail=f"Hotel dengan kode {body.code.upper()} sudah ada")
+        hotel.code = body.code.upper()
+
     if body.name is not None:
         hotel.name = body.name.strip()
+    if body.city is not None:
+        hotel.city = body.city.strip()
+
+    if body.brand_id is not None:
+        brand = await get_by_uuid(session, Brand, body.brand_id)
+        if brand is None:
+            raise HTTPException(status_code=404, detail="Brand tidak ditemukan")
+        hotel.brand_id = brand.id
+
+    if body.region_id is not None:
+        region = await get_by_uuid(session, Region, body.region_id)
+        if region is None:
+            raise HTTPException(status_code=404, detail="Region tidak ditemukan")
+        hotel.region_id = region.id
+
+    if body.province_id is not None:
+        province = await get_by_uuid(session, Province, body.province_id)
+        if province is None:
+            raise HTTPException(status_code=404, detail="Province tidak ditemukan")
+        hotel.province_id = province.id
+
+    if body.gm_id is not None:
+        gm = await get_by_uuid(session, User, body.gm_id)
+        hotel.gm_id = gm.id if gm else None
+
+    if body.rom_id is not None:
+        rom = await get_by_uuid(session, User, body.rom_id)
+        hotel.rom_id = rom.id if rom else None
+
+    if body.geo is not None:
+        hotel.geo = WKTElement(f"SRID=4326;POINT({body.geo.lng} {body.geo.lat})")
+
     if body.geofence_radius_meters is not None:
         hotel.geofence_radius_meters = body.geofence_radius_meters
+
     if body.mice_facilities is not None:
         hotel.mice_facilities = body.mice_facilities
+
+    if body.opening_date is not None:
+        try:
+            hotel.opening_date = date.fromisoformat(body.opening_date) if body.opening_date else None
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Format opening_date harus YYYY-MM-DD")
+
+    if body.terminate_date is not None:
+        try:
+            hotel.terminate_date = date.fromisoformat(body.terminate_date) if body.terminate_date else None
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Format terminate_date harus YYYY-MM-DD")
+
     if body.status is not None:
         hotel.status = body.status
-    hotel.updated_by = current.id
+        if body.status == "TERMINATED" and not hotel.terminate_date:
+            hotel.terminate_date = date.today()
+
     await session.commit()
-    return await get_hotel(code, current, session)
+    return await get_hotel(str(hotel.uuid), current, session)
+
+
+@router.delete("/hotels/{code}", response_model=Envelope[dict])
+async def delete_hotel(
+    code: str,
+    current: CurrentUser,
+    session: DbSession,
+) -> Envelope[dict]:
+    await _require_master_write(current, session)
+
+    is_uuid = False
+    try:
+        target_uuid = uuid.UUID(code)
+        is_uuid = True
+    except (ValueError, AttributeError):
+        pass
+
+    if is_uuid:
+        hotel = await session.scalar(
+            select(Hotel).where(Hotel.uuid == target_uuid, Hotel.deleted_at.is_(None))
+        )
+    else:
+        hotel = await session.scalar(
+            select(Hotel).where(Hotel.code == code.upper(), Hotel.deleted_at.is_(None))
+        )
+
+    if hotel is None:
+        raise HTTPException(status_code=404, detail="Hotel tidak ditemukan")
+
+    hotel.deleted_at = func.now()
+    await session.commit()
+    return Envelope(data={"id": str(hotel.uuid), "code": hotel.code, "deleted": True})
 
 
 @router.get("/hotels/{code}/departments", response_model=Envelope[list[DepartmentOut]])
@@ -175,38 +373,28 @@ async def list_hotel_departments(
     rows = (
         await session.execute(
             text(
-                "SELECT d.id, d.hotel_id, d.code, d.name, d.hod_user_id "
+                "SELECT d.uuid AS uuid, h.uuid AS hotel_uuid, d.code, d.name, u.uuid AS hod_user_uuid "
                 "FROM hotel_departments d JOIN hotels h ON h.id = d.hotel_id "
+                "LEFT JOIN users u ON u.id = d.hod_user_id "
                 "WHERE h.code = :code AND d.deleted_at IS NULL "
                 "ORDER BY d.code"
             ).bindparams(code=code.upper())
         )
     ).mappings().all()
-    return Envelope(data=[DepartmentOut(**r) for r in rows])
+    return Envelope(
+        data=[
+            DepartmentOut(
+                id=r["uuid"],
+                hotel_id=r["hotel_uuid"],
+                code=r["code"],
+                name=r["name"],
+                hod_user_id=r["hod_user_uuid"],
+            )
+            for r in rows
+        ]
+    )
 
 
-@router.get("/brands", response_model=Envelope[list[BrandOut]])
-async def list_brands(
-    current: CurrentUser,
-    session: DbSession,
-) -> Envelope[list[BrandOut]]:
-    brands = (
-        await session.scalars(
-            select(Brand).order_by(Brand.tier, Brand.name).where(Brand.deleted_at.is_(None))
-        )
-    ).all()
-    return Envelope(data=[BrandOut.model_validate(b) for b in brands])
-
-
-@router.get("/regions", response_model=Envelope[list[RegionOut]])
-async def list_regions(
-    current: CurrentUser,
-    session: DbSession,
-) -> Envelope[list[RegionOut]]:
-    regions = (
-        await session.scalars(select(Region).order_by(Region.name).where(Region.deleted_at.is_(None)))
-    ).all()
-    return Envelope(data=[RegionOut.model_validate(r) for r in regions])
 
 
 @router.get("/provinces", response_model=Envelope[list[ProvinceOut]])

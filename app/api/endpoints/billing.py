@@ -27,6 +27,7 @@ from app.core.identity import get_by_uuid
 from app.models import BillingMilestone, Quotation, User
 from app.schemas.common import Envelope, HybridId, Paginated, PaginationMeta
 from app.schemas.crm import BillingMilestoneCreateRequest, BillingMilestoneOut, BillingMilestoneUpdateRequest
+from app.services.media_storage import presigned_get_url
 from app.services.billing_pipeline import (
     MILESTONE_STATUSES,
     BillingDuplicateError,
@@ -64,6 +65,16 @@ async def _get_milestone(session: AsyncSession, milestone_id: HybridId) -> Billi
     if milestone is None:
         raise HTTPException(404, "Milestone tidak ditemukan")
     return milestone
+
+
+def _to_out(milestone: BillingMilestone) -> BillingMilestoneOut:
+    out = BillingMilestoneOut.model_validate(milestone)
+    if milestone.doc_key:
+        try:
+            out.doc_url = presigned_get_url(milestone.doc_key)
+        except Exception:
+            out.doc_url = None
+    return out
 
 
 @router.get("", response_model=Paginated[Envelope[list[BillingMilestoneOut]], BillingMilestoneOut])
@@ -111,9 +122,26 @@ async def list_milestones(
         )
     ).all()
     return Paginated(
-        data=[BillingMilestoneOut.model_validate(r) for r in rows],
+        data=[_to_out(r) for r in rows],
         meta=PaginationMeta(current_page=max(1, page), per_page=per_page, total=total, last_page=last_page),
     )
+
+
+@router.get("/milestones/{id}", response_model=Envelope[BillingMilestoneOut])
+async def get_milestone_endpoint(
+    id: HybridId,
+    current: CurrentUser,
+    session: DbSession,
+) -> Envelope[BillingMilestoneOut]:
+    """Detail milestone dinas SPK/NPWP/BAST/LPJ (F-10)."""
+    scope = await _require_billing_read(session, current)
+    milestone = await _get_milestone(session, id)
+    quotation = milestone.quotation
+    if quotation is None:
+        raise HTTPException(404, "Quotation tidak ditemukan")
+    if scope is not None and quotation.hotel_id not in scope:
+        raise HTTPException(403, "Missing permission: billing scope hotel/region/global")
+    return Envelope(data=_to_out(milestone))
 
 
 @router.post("/milestones", response_model=Envelope[BillingMilestoneOut], status_code=201)
@@ -144,7 +172,7 @@ async def create_milestone_endpoint(
     await session.refresh(milestone)
     milestone.quotation = quotation
     milestone.updated_by_user = current
-    return Envelope(data=BillingMilestoneOut.model_validate(milestone))
+    return Envelope(data=_to_out(milestone))
 
 
 @router.patch("/milestones/{id}", response_model=Envelope[BillingMilestoneOut])
@@ -177,4 +205,4 @@ async def update_milestone_endpoint(
     await session.commit()
     await session.refresh(milestone)
     milestone.updated_by_user = current
-    return Envelope(data=BillingMilestoneOut.model_validate(milestone))
+    return Envelope(data=_to_out(milestone))
