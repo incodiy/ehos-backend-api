@@ -796,3 +796,150 @@ async def seed_checklist_bank(session: AsyncSession, published_by: uuid.UUID) ->
                     },
                 )
                 await session.execute(it)
+
+    # -----------------------------------------------------------------------
+    # ARCHIVED, DRAFT, AND SOFT-DELETED SCENARIOS (Constraint H1-H4)
+    # -----------------------------------------------------------------------
+    additional_templates = [
+        {
+            "department": "HOUSEKEEPING",
+            "name": "Housekeeping — Standard Room v2024 (Legacy)",
+            "version": "v2024.1",
+            "brand_tier": None,
+            "status": "ARCHIVED",
+            "deleted_at": None,
+            "sections": [
+                {
+                    "code": "HK-LEG-01",
+                    "name": "Legacy Room Cleanliness",
+                    "items": [
+                        ("HK-L1", "Kerapihan tempat tidur dan linen bersih tanpa noda", "TRAFFIC_LIGHT", 90, 1.0, False, False),
+                    ],
+                }
+            ],
+        },
+        {
+            "department": "GM",
+            "name": "General Manager Annual Audit v2025 (Arsip)",
+            "version": "v2025.1",
+            "brand_tier": None,
+            "status": "ARCHIVED",
+            "deleted_at": None,
+            "sections": [
+                {
+                    "code": "GM-LEG-01",
+                    "name": "Legacy Operations & Compliance",
+                    "items": [
+                        ("GM-L1", "Kepatuhan SOP perizinan operasional hotel", "BINARY_COUNT", 1.0, 1.0, False, False),
+                    ],
+                }
+            ],
+        },
+        {
+            "department": "KITCHEN_FB",
+            "name": "Kitchen & FB Hygiene Draft v2027",
+            "version": "v2027.1",
+            "brand_tier": "Upscale",
+            "status": "DRAFT",
+            "deleted_at": None,
+            "sections": [
+                {
+                    "code": "FB-DRF-01",
+                    "name": "Cold Storage & HACCP",
+                    "items": [
+                        ("FB-D1", "Suhu chiller daging berada di antara 0-4 derajat Celsius", "NUMERIC_SCALE", 100, 1.5, False, True),
+                    ],
+                }
+            ],
+        },
+        {
+            "department": "SECURITY_RISK",
+            "name": "Security Risk Obsolete Protocol v2023",
+            "version": "v2023.1",
+            "brand_tier": None,
+            "status": "ARCHIVED",
+            "deleted_at": datetime(2025, 1, 1, tzinfo=UTC),
+            "sections": [
+                {
+                    "code": "SEC-OBS-01",
+                    "name": "Obsolete Patrol Procedure",
+                    "items": [
+                        ("SEC-O1", "Logbook pos satpam manual", "BINARY_COUNT", 1.0, 1.0, False, False),
+                    ],
+                }
+            ],
+        },
+    ]
+
+    for extra in additional_templates:
+        tpl = pg_insert(ChecklistTemplate).values(
+            department=extra["department"],
+            name=extra["name"],
+            version=extra["version"],
+            brand_tier=extra["brand_tier"],
+            status=extra["status"],
+            locked_at=datetime.now(UTC) if extra["status"] != "DRAFT" else None,
+            published_by=published_by,
+            deleted_at=extra["deleted_at"],
+        )
+        tpl = tpl.on_conflict_do_update(
+            index_elements=[ChecklistTemplate.department, ChecklistTemplate.name, ChecklistTemplate.version],
+            set_={
+                "brand_tier": extra["brand_tier"],
+                "status": extra["status"],
+                "deleted_at": extra["deleted_at"],
+            },
+        )
+        await session.execute(tpl)
+        template_id = await session.scalar(
+            select(ChecklistTemplate.id).where(
+                ChecklistTemplate.department == extra["department"],
+                ChecklistTemplate.name == extra["name"],
+                ChecklistTemplate.version == extra["version"],
+            )
+        )
+        for position, sec_data in enumerate(extra["sections"], start=1):
+            sec = pg_insert(ChecklistSection).values(
+                template_id=template_id,
+                code=sec_data["code"],
+                name=sec_data["name"],
+                sort_order=position * 10,
+            )
+            sec = sec.on_conflict_do_update(
+                index_elements=[ChecklistSection.template_id, ChecklistSection.code],
+                set_={"name": sec_data["name"], "sort_order": position * 10},
+            )
+            await session.execute(sec)
+            section_id = await session.scalar(
+                select(ChecklistSection.id).where(
+                    ChecklistSection.template_id == template_id,
+                    ChecklistSection.code == sec_data["code"],
+                )
+            )
+            for rank, item_tuple in enumerate(sec_data["items"], start=1):
+                code, q_text, r_type, max_s, w, na_a, is_ls = item_tuple
+                it = pg_insert(ChecklistItem).values(
+                    section_id=section_id,
+                    code=code,
+                    question_text=q_text,
+                    rubric_type=r_type,
+                    max_score=max_s,
+                    weight=w,
+                    na_allowed=na_a,
+                    is_life_safety=is_ls,
+                    sort_order=rank * 10,
+                )
+                it = it.on_conflict_do_update(
+                    index_elements=[ChecklistItem.section_id, ChecklistItem.code],
+                    set_={
+                        "question_text": q_text,
+                        "rubric_type": r_type,
+                        "max_score": max_s,
+                        "weight": w,
+                        "na_allowed": na_a,
+                        "is_life_safety": is_ls,
+                        "sort_order": rank * 10,
+                    },
+                )
+                await session.execute(it)
+

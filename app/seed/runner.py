@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.seed.audit_ingest import seed_audit_ingest
+from app.seed.audit_logs import seed_audit_logs
+from app.seed.audit_scenarios import seed_audit_scenarios
 from app.seed.billing_scenarios import seed_billing_milestones
 from app.seed.capa import seed_capa_scenarios
 from app.seed.checklist_bank import seed_checklist_bank
@@ -36,6 +38,7 @@ async def run_seeders() -> None:
         role_ids = await seed_rbac(session)
         resolved = await seed_users(session, role_ids)
         await seed_checklist_bank(session, resolved["root.admin@ehos.local"])
+        await seed_audit_scenarios(session, resolved)
         await seed_translations(session, resolved["root.admin@ehos.local"])
         await seed_capa_scenarios(session, resolved["root.admin@ehos.local"])
         await seed_crm_scenarios(session, resolved)
@@ -45,6 +48,7 @@ async def run_seeders() -> None:
         await seed_quotation_scenarios(session, resolved)
         await seed_lost_reason_scenarios(session, resolved)
         await seed_billing_milestones(session, resolved)
+        await seed_audit_logs(session, resolved)
         await remind_sla(session, now=datetime.now(UTC), window_hours=24)
         await crm_followup_reminders(session, now=datetime.now(UTC))
         await remind_billing_milestones(session, now=datetime.now(UTC), days_before=14)

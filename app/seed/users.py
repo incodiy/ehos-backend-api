@@ -169,6 +169,14 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
             )
             await session.execute(nested)
 
+            # Chained FK repoint: Hotel.gm_id jika role adalah HOTEL_GM (Constraint H2)
+            if item["role"] == "HOTEL_GM":
+                await session.execute(
+                    text("UPDATE hotels SET gm_id = :uid WHERE id = :hid").bindparams(
+                        uid=user_id, hid=hotel_ids[code]
+                    )
+                )
+
         for anchor in item.get("regions_for_hotels", []):
             region_id = await session.scalar(
                 text("SELECT h.region_id FROM hotels h WHERE h.code = :code").bindparams(code=anchor)
@@ -180,6 +188,13 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
                 .values(user_id=user_id, region_id=region_id)
                 .on_conflict_do_nothing(index_elements=["user_id", "region_id"])
             )
+            # Chained FK repoint: Hotel.rom_id jika role adalah REGIONAL_ROM (Constraint H2)
+            if item["role"] == "REGIONAL_ROM":
+                await session.execute(
+                    text("UPDATE hotels SET rom_id = :uid WHERE region_id = :rid").bindparams(
+                        uid=user_id, rid=region_id
+                    )
+                )
 
     auditor_id = resolved["corp.auditor@ehos.local"]
     sales_id = resolved["sales.tele@ehos.local"]
@@ -191,5 +206,10 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
         text("UPDATE leads SET owner_id = :uid, created_by = :uid, updated_by = :uid").bindparams(uid=sales_id)
     )
     await session.execute(text("UPDATE legacy_ingestion_batches SET imported_by = :uid").bindparams(uid=root_user_id))
+
+    # Pastikan minimal 1 hotel uji soft-deleted untuk verifikasi skenario soft delete (Constraint H3)
+    await session.execute(
+        text("UPDATE hotels SET deleted_at = NOW() WHERE code = 'SBCB' AND deleted_at IS NULL")
+    )
 
     return resolved

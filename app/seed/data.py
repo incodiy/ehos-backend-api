@@ -1,15 +1,18 @@
 """EHOS seed data — brand tiers, provinces, city→province, coordinate fallback (Constraint H1)."""
 
 BRANDS: list[dict] = [
-    {"code": "SBH", "name": "Swiss-Belhotel", "tier": "Upscale"},
-    {"code": "GSB", "name": "Grand Swiss-Belhotel", "tier": "Luxury"},
-    {"code": "SBO", "name": "Swiss-Belboutique", "tier": "Boutique"},
-    {"code": "SBN", "name": "Swiss-Belinn", "tier": "Midscale"},
-    {"code": "SBX", "name": "Swiss-Belexpress", "tier": "Budget"},
-    {"code": "ZST", "name": "Zest", "tier": "Budget"},
-    {"code": "SBC", "name": "Swiss-Belcourt", "tier": "Midscale"},
-    {"code": "SBR", "name": "Swiss-Belresort", "tier": "Eco-Resort"},
-    {"code": "SBRD", "name": "Swiss-Belresidence", "tier": "Upscale"},
+    {"code": "SBH", "name": "Swiss-Belhotel", "tier": "Upscale", "status": "ACTIVE"},
+    {"code": "GSB", "name": "Grand Swiss-Belhotel", "tier": "Luxury", "status": "ACTIVE"},
+    {"code": "SBO", "name": "Swiss-Belboutique", "tier": "Boutique", "status": "ACTIVE"},
+    {"code": "SBN", "name": "Swiss-Belinn", "tier": "Midscale", "status": "ACTIVE"},
+    {"code": "SBX", "name": "Swiss-Belexpress", "tier": "Budget", "status": "ACTIVE"},
+    {"code": "ZST", "name": "Zest", "tier": "Budget", "status": "ACTIVE"},
+    {"code": "SBC", "name": "Swiss-Belcourt", "tier": "Midscale", "status": "ACTIVE"},
+    {"code": "SBR", "name": "Swiss-Belresort", "tier": "Eco-Resort", "status": "ACTIVE"},
+    {"code": "SBRD", "name": "Swiss-Belresidence", "tier": "Upscale", "status": "ACTIVE"},
+    {"code": "MAUA", "name": "MAUA Ecoluxury Retreats", "tier": "Luxury", "status": "ACTIVE"},
+    {"code": "SBE", "name": "Swiss-Belhotel Eco Suites", "tier": "Eco-Resort", "status": "INACTIVE"},
+    {"code": "SBV", "name": "Swiss-Belvillas Heritage", "tier": "Boutique", "status": "RETIRED"},
 ]
 
 BRAND_BY_SOURCE_LABEL: dict[str, str] = {

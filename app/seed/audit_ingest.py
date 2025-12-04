@@ -386,7 +386,7 @@ async def _ensure_template(
             department=department,
             name=name,
             version=TEMPLATE_VERSION,
-            status="ACTIVE",
+            status="LOCKED",
             published_by=published_by,
         )
         session.add(template)

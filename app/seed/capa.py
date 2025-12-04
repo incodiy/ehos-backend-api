@@ -19,7 +19,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -43,22 +43,43 @@ SCENARIOS: list[dict[str, Any]] = [
     {"n": 8, "status": "AWAITING_QA", "level": 3, "due_offset_h": -24, "closed_offset_h": None, "priority": 1},
     {"n": 9, "status": "CLOSED", "level": 1, "due_offset_h": 10, "closed_offset_h": -2, "priority": 2},
     {"n": 10, "status": "CLOSED", "level": 2, "due_offset_h": -48, "closed_offset_h": -24, "priority": 3},
+    # cross-hotel (H2/H3): ticket tersebar lintas properti, bukan cuma CWS —
+    # kepatuhan "1 GM mengawasi 2 hotel" (gm.cluster = SBAI + ZHBA) dan SLA bernafas.
+    {"n": 11, "status": "AWAITING_QA", "level": 1, "due_offset_h": -5, "closed_offset_h": None,
+     "priority": 2, "hotel_code": "SBAI"},
+    {"n": 12, "status": "OPEN", "level": 0, "due_offset_h": 6, "closed_offset_h": None,
+     "priority": 1, "hotel_code": "SQYO"},
+    {"n": 13, "status": "CLOSED", "level": 0, "due_offset_h": -40, "closed_offset_h": -10,
+     "priority": 3, "hotel_code": "ZHBA"},
+    {"n": 14, "status": "AWAITING_GM", "level": 0, "due_offset_h": 30, "closed_offset_h": None,
+     "priority": 2, "hotel_code": "SBAI"},
+    {"n": 15, "status": "OPEN", "level": 2, "due_offset_h": -12, "closed_offset_h": None,
+     "priority": 1, "hotel_code": "SQYO"},
+    {"n": 16, "status": "IN_PROGRESS", "level": 0, "due_offset_h": 24, "closed_offset_h": None,
+     "priority": 2, "hotel_code": "CWS"},
 ]
 
 _CHAIN: dict[str, list[tuple[str | None, str, str]]] = {
     "OPEN": [(None, "OPEN", "OPEN (auto-create)")],
+    "IN_PROGRESS": [
+        (None, "OPEN", "OPEN (auto-create)"),
+        ("OPEN", "IN_PROGRESS", "Ditugaskan ke resolver (HOD/Teknisi)"),
+    ],
     "AWAITING_GM": [
         (None, "OPEN", "OPEN (auto-create)"),
-        ("OPEN", "AWAITING_GM", "Perbaikan diterima, menunggu verifikasi GM"),
+        ("OPEN", "IN_PROGRESS", "Ditugaskan ke resolver (HOD/Teknisi)"),
+        ("IN_PROGRESS", "AWAITING_GM", "Perbaikan diterima, menunggu verifikasi GM"),
     ],
     "AWAITING_QA": [
         (None, "OPEN", "OPEN (auto-create)"),
-        ("OPEN", "AWAITING_GM", "Perbaikan diterima, menunggu verifikasi GM"),
+        ("OPEN", "IN_PROGRESS", "Ditugaskan ke resolver (HOD/Teknisi)"),
+        ("IN_PROGRESS", "AWAITING_GM", "Perbaikan diterima, menunggu verifikasi GM"),
         ("AWAITING_GM", "AWAITING_QA", "Disetujui GM, menunggu verifikasi QA korporat"),
     ],
     "CLOSED": [
         (None, "OPEN", "OPEN (auto-create)"),
-        ("OPEN", "AWAITING_GM", "Perbaikan diterima, menunggu verifikasi GM"),
+        ("OPEN", "IN_PROGRESS", "Ditugaskan ke resolver (HOD/Teknisi)"),
+        ("IN_PROGRESS", "AWAITING_GM", "Perbaikan diterima, menunggu verifikasi GM"),
         ("AWAITING_GM", "AWAITING_QA", "Disetujui GM, menunggu verifikasi QA korporat"),
         ("AWAITING_QA", "CLOSED", "CAPA ditutup oleh corporate QA"),
     ],
@@ -164,6 +185,10 @@ async def _ensure_scenario_media(session: AsyncSession, now: datetime) -> int:
         "SLA00008": [("AFTER", "VERIFIED", 8), ("AFTER", "PENDING", 8)],  # campuran
         "SLA00009": [("BEFORE", "VERIFIED", 72), ("AFTER", "VERIFIED", 6), ("AFTER", "VERIFIED", 6)],
         "SLA00010": [("BEFORE", "VERIFIED", 96), ("AFTER", "VERIFIED", 30)],  # CLOSED terlambat
+        "SLA00011": [("AFTER", "VERIFIED", 10)],   # SBAI AWAITING_QA siap QA close
+        "SLA00012": [("BEFORE", "VERIFIED", 48)],  # SQYO OPEN — bukti temuan
+        "SLA00013": [("BEFORE", "VERIFIED", 96), ("AFTER", "VERIFIED", 12)],  # ZHBA CLOSED
+        "SLA00014": [("AFTER", "VERIFIED", 6)],    # SBAI AWAITING_GM siap GM approve
     }
     if not plans:
         return 0
@@ -206,6 +231,43 @@ async def _ensure_scenario_media(session: AsyncSession, now: datetime) -> int:
                 )
             )
             added += 1
+
+    # Audit: Pastikan SEMUA tiket di AWAITING_GM, AWAITING_QA, CLOSED memiliki minimal 1 foto AFTER VERIFIED (F-04 Gate)
+    advanced = (await session.scalars(
+        select(CapaTicket).where(CapaTicket.status.in_(["AWAITING_GM", "AWAITING_QA", "CLOSED"]))
+    )).all()
+    for t in advanced:
+        v_count = await session.scalar(
+            select(func.count(CapaMedia.id)).where(
+                CapaMedia.ticket_id == t.id,
+                CapaMedia.phase == "AFTER",
+                CapaMedia.upload_status == "VERIFIED",
+            )
+        )
+        if not v_count:
+            fname = f"capa-{t.receipt_id}-after-verified.webp"
+            digest = hashlib.sha256(f"{t.receipt_id}-verified-after".encode()).hexdigest()
+            session.add(
+                CapaMedia(
+                    ticket_id=t.id,
+                    phase="AFTER",
+                    source_camera="LIVE_CAMERA",
+                    object_key=f"capa/{str(t.id)}/{uuid.uuid4().hex}.webp",
+                    file_name=fname,
+                    mime="image/webp",
+                    width=1280,
+                    height=960,
+                    size_bytes=240_000,
+                    checksum_sha256=digest,
+                    gps_lat=-6.200000,
+                    gps_lng=106.810000,
+                    gps_valid=True,
+                    captured_at=now - timedelta(hours=4),
+                    server_captured_at=now - timedelta(hours=4),
+                    upload_status="VERIFIED",
+                )
+            )
+            added += 1
     return added
 
 
@@ -215,6 +277,9 @@ async def seed_capa_scenarios(session: AsyncSession, actor_id: uuid.UUID) -> dic
     now = datetime.now(UTC)
     manual_hotel_id = await session.scalar(text("SELECT id FROM hotels WHERE code='CWS'"))
     created = skipped = findings_used = manual_used = 0
+
+    async def _hotel_by_code(code: str) -> uuid.UUID | None:
+        return await session.scalar(text("SELECT id FROM hotels WHERE code=:c"), {"c": code})
 
     for scenario in SCENARIOS:
         n = scenario["n"]
@@ -234,12 +299,14 @@ async def seed_capa_scenarios(session: AsyncSession, actor_id: uuid.UUID) -> dic
         else:
             priority = scenario["priority"]
             sla_hours = SLA_CLASS_HOURS[priority]
-            title = f"CAPA intake {receipt} — perbaikan {priority}-{scenario['status']}"
+            target_hotel = scenario.get("hotel_code") or "CWS"
+            hotel_id = await _hotel_by_code(target_hotel) or manual_hotel_id
+            title = f"CAPA intake {receipt} — perbaikan {priority}-{scenario['status']} ({target_hotel})"
             description = (
-                "Tiket intake/manual tanpa temuan audit (simulasi laporan WHISTLEBLOWER/"
-                "ops). Memverifikasi alur SLA dan eskalasi berjenjang."
+                f"Tiket intake/manual tanpa temuan audit di hotel {target_hotel} "
+                "(simulasi laporan WHISTLEBLOWER/ops). Memverifikasi alur SLA dan "
+                "eskalasi berjenjang lintas properti."
             )
-            hotel_id = manual_hotel_id
             origin = "MANUAL"
             manual_used += 1
 
@@ -251,8 +318,8 @@ async def seed_capa_scenarios(session: AsyncSession, actor_id: uuid.UUID) -> dic
         if finding is not None:
             sess = await session.get(AuditSession, finding.session_id)
             dept_id = await resolve_department_id(session, hotel_id, sess.department) if sess else None
-        elif manual_hotel_id is not None:
-            dept_id = await resolve_department_id(session, manual_hotel_id, "SECURITY_RISK")
+        elif hotel_id is not None:
+            dept_id = await resolve_department_id(session, hotel_id, "SECURITY_RISK")
 
         ticket = CapaTicket(
             finding_id=finding.id if finding else None,

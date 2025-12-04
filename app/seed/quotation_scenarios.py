@@ -79,6 +79,30 @@ QUOTATION_SCENARIOS: list[dict] = [
         "status": "SENT",
         "approve_discount": None,
     },
+    {
+        "quotation_no": "Q-8D-CWS-03",
+        "lead_no": "CRM-8A-CWS-01",
+        "event_date": date(2027, 5, 12),
+        "event_name": "Sosialisasi Kebijakan Daerah (Dibatalkan Klien)",
+        "package_type": "HALFDAY",
+        "pax_count": 60,
+        "gross_amount": 18_000_000,
+        "discount_amount": 0,
+        "status": "DECLINED",
+        "approve_discount": None,
+    },
+    {
+        "quotation_no": "Q-8D-CWS-04",
+        "lead_no": "CRM-8A-CWS-04",
+        "event_date": date(2027, 8, 20),
+        "event_name": "Corporate Annual Gala Dinner (Private Lead — Bebas SBM)",
+        "package_type": "FULLDAY",
+        "pax_count": 150,
+        "gross_amount": 90_000_000,
+        "discount_amount": 5_000_000,
+        "status": "SENT",
+        "approve_discount": None,
+    },
 ]
 
 

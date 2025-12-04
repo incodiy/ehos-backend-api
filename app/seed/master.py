@@ -4,11 +4,11 @@ Deterministic & idempotent (Constraint H1-H4). Source of truth: `crm/Master Data
 """
 
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import openpyxl
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,9 +45,23 @@ async def seed_brands(session: AsyncSession) -> None:
     stmt = pg_insert(Brand).values(BRANDS)
     stmt = stmt.on_conflict_do_update(
         index_elements=[Brand.code],
-        set_={"name": stmt.excluded.name, "tier": stmt.excluded.tier},
+        set_={"name": stmt.excluded.name, "tier": stmt.excluded.tier, "status": stmt.excluded.status},
     )
     await session.execute(stmt)
+
+    # Constraint H3: Skenario soft-delete untuk pengujian isolasi query
+    soft_deleted_code = "TEST_LEGACY_BRAND"
+    existing_soft = await session.scalar(select(Brand).where(Brand.code == soft_deleted_code))
+    if not existing_soft:
+        brand_sd = Brand(
+            code=soft_deleted_code,
+            name="Brand Prototype Historical Archive",
+            tier="Midscale",
+            status="RETIRED",
+        )
+        brand_sd.deleted_at = datetime.now(timezone.utc)
+        session.add(brand_sd)
+        await session.flush()
 
 
 async def seed_provinces(session: AsyncSession) -> None:
@@ -107,9 +121,56 @@ async def _load_hotel_rows(data_dir: str) -> tuple[list[dict], list[dict]]:
             "name": name,
             "country": "Indonesia",
             "sales_region": region_sales[name].most_common(1)[0][0],
+            "status": "ACTIVE",
         }
         for name in REGION_CODE
     ]
+
+    # Constraint H1-H4 Multi-scenario simulations:
+    # 1. Happy path (14 active regions linked to 106 hotels & ROMs)
+    # 2. Edge case 1: Region without hotels (zero-hotel empty state test)
+    # 3. Edge case 2: Inactive region (unit reorganization/transition)
+    # 4. Edge case 3: Retired legacy region (historical 2024 boundary)
+    # 5. Edge case 4: Soft-deleted test region (verify deleted_at isolation)
+    # 6. Edge case 5: International multi-country regional scope (Vietnam/APAC)
+    extra_scenarios = [
+        {
+            "code": "NUSANTARA",
+            "name": "Nusantara Capital City (IKN)",
+            "country": "Indonesia",
+            "sales_region": "East Kalimantan & Nusantara Sales",
+            "status": "ACTIVE",
+        },
+        {
+            "code": "TIMOR_BARAT",
+            "name": "West Timor Special Region",
+            "country": "Indonesia",
+            "sales_region": "Sunda Kecil Sales",
+            "status": "INACTIVE",
+        },
+        {
+            "code": "MALUKU_PAPUA",
+            "name": "Maluku & Papua Combined (Legacy 2024)",
+            "country": "Indonesia",
+            "sales_region": "East Indonesia Combined",
+            "status": "RETIRED",
+        },
+        {
+            "code": "TEST_EXPANSION",
+            "name": "Test Regional Expansion Unit",
+            "country": "Indonesia",
+            "sales_region": "R&D Expansion",
+            "status": "ACTIVE",
+        },
+        {
+            "code": "APAC_OVERSEAS",
+            "name": "Indochina & Philippines",
+            "country": "Vietnam",
+            "sales_region": "APAC International Division",
+            "status": "ACTIVE",
+        },
+    ]
+    regions.extend(extra_scenarios)
     regions.sort(key=lambda x: x["code"])
     return rows, regions
 
@@ -117,7 +178,7 @@ async def _load_hotel_rows(data_dir: str) -> tuple[list[dict], list[dict]]:
 async def seed_regions_and_hotels(session: AsyncSession, data_dir: str) -> None:
     rows, regions = await _load_hotel_rows(data_dir)
 
-    if rows:
+    if regions:
         stmt = pg_insert(Region).values(regions)
         stmt = stmt.on_conflict_do_update(
             index_elements=[Region.code],
@@ -125,9 +186,15 @@ async def seed_regions_and_hotels(session: AsyncSession, data_dir: str) -> None:
                 "name": stmt.excluded.name,
                 "country": stmt.excluded.country,
                 "sales_region": stmt.excluded.sales_region,
+                "status": stmt.excluded.status,
             },
         )
         await session.execute(stmt)
+
+        # Soft-delete test region for query verification
+        await session.execute(
+            text("UPDATE regions SET deleted_at = NOW() WHERE code = 'TEST_EXPANSION' AND deleted_at IS NULL")
+        )
 
     brand_ids = dict((await session.execute(select(Brand.code, Brand.id))).all())
     region_ids = dict((await session.execute(select(Region.code, Region.id))).all())
@@ -138,6 +205,32 @@ async def seed_regions_and_hotels(session: AsyncSession, data_dir: str) -> None:
         lat, lon = row["lat"], row["lon"]
         if lat is None or lon is None:
             lat, lon = COORDINATE_FALLBACK[row["code"]]
+
+        # Skenario multi-status FSM: TEMPORARILY_CLOSED untuk hotel dalam masa renovasi besar
+        status = row["status"]
+        if row["code"] in ("ATTB", "LHSB", "HCC"):
+            status = "TEMPORARILY_CLOSED"
+
+        # Simulasi MICE facilities komprehensif (PRD-F-01 & Constraint H1-H4)
+        mice_facilities = None
+        if row["brand_code"] in ("SBH", "SBR", "GSB", "SBEC", "MDK") or row["code"] in ("CWS", "SBAI", "SQYO"):
+            base_pax = 500 + (sum(ord(c) for c in row["code"]) % 8) * 100
+            rooms = 4 + (sum(ord(c) for c in row["code"]) % 6)
+            mice_facilities = {
+                "ballroom_capacity": base_pax,
+                "meeting_rooms": rooms,
+                "has_videotron": (base_pax >= 800),
+            }
+
+        # Variasi geofence radius (resort luas 450m vs city hotel 150-300m)
+        radius = 200
+        if "resort" in row["name"].lower() or row["brand_code"] == "SBR":
+            radius = 450
+        elif row["brand_code"] in ("SBH", "GSB"):
+            radius = 300
+        elif row["brand_code"] in ("ZES", "SBEX"):
+            radius = 150
+
         hotel_values.append(
             {
                 "code": row["code"],
@@ -147,9 +240,11 @@ async def seed_regions_and_hotels(session: AsyncSession, data_dir: str) -> None:
                 "province_id": province_ids[row["province_code"]],
                 "city": row["city"],
                 "geo": WKTElement(f"SRID=4326;POINT({lon} {lat})"),
+                "geofence_radius_meters": radius,
+                "mice_facilities": mice_facilities,
                 "opening_date": row["opening_date"],
                 "terminate_date": row["terminate_date"],
-                "status": row["status"],
+                "status": status,
             }
         )
 
@@ -164,6 +259,8 @@ async def seed_regions_and_hotels(session: AsyncSession, data_dir: str) -> None:
                 "province_id": stmt.excluded.province_id,
                 "city": stmt.excluded.city,
                 "geo": stmt.excluded.geo,
+                "geofence_radius_meters": stmt.excluded.geofence_radius_meters,
+                "mice_facilities": stmt.excluded.mice_facilities,
                 "opening_date": stmt.excluded.opening_date,
                 "terminate_date": stmt.excluded.terminate_date,
                 "status": stmt.excluded.status,

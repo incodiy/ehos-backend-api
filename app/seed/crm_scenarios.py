@@ -157,7 +157,7 @@ async def seed_crm_scenarios(session: AsyncSession, resolved: dict[str, uuid.UUI
             status, lost_reason, followup, amount = (
                 (
                     "LEAD", None, None,
-                    [90_000_000, 150_000_000, 210_000_000, 75_000_000][i % 4] * 1000,
+                    [90_000_000, 150_000_000, 210_000_000, 75_000_000][i % 4],
                 )
                 if variant == 0 else
                 (
