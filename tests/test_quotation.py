@@ -270,3 +270,59 @@ async def test_seeder_quotation_idempotent() -> None:
             )
         )
         assert dup is None
+
+
+async def test_patch_quotation_fsm_and_discount_approval(client: AsyncClient) -> None:
+    token = await _login(client, SALES_CWS)
+    lead_id, _ = await _lead_id("CRM-8A-CWS-01")
+    # 1. Create quote with discount > 0 on GOV lead -> discount_approval_status = PENDING
+    status, body = await _create_quote(client, token, lead_id, pax=100, gross=30_000_000, discount=2_000_000)
+    assert status == 201
+    qid = body["data"]["id"]
+    assert body["data"]["discount_approval_status"] == "PENDING"
+    assert body["data"]["status"] == "DRAFT"
+
+    # 2. Try to transition to SENT before approval -> 409
+    r_blocked = await client.patch(
+        f"/crm/quotations/{qid}",
+        json={"status": "SENT"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r_blocked.status_code == 409
+    assert "approval GM" in r_blocked.json()["detail"]
+
+    # 3. GM approves discount
+    r_app = await client.patch(
+        f"/crm/quotations/{qid}",
+        json={"discount_approval_status": "APPROVED"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r_app.status_code == 200
+    assert r_app.json()["data"]["discount_approval_status"] == "APPROVED"
+
+    # 4. Now transition to SENT -> succeeds
+    r_sent = await client.patch(
+        f"/crm/quotations/{qid}",
+        json={"status": "SENT"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r_sent.status_code == 200
+    assert r_sent.json()["data"]["status"] == "SENT"
+
+    # 5. Transition from SENT to ACCEPTED -> succeeds & sets lead status
+    r_acc = await client.patch(
+        f"/crm/quotations/{qid}",
+        json={"status": "ACCEPTED"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r_acc.status_code == 200
+    assert r_acc.json()["data"]["status"] == "ACCEPTED"
+
+    # 6. Try to change terminal status ACCEPTED -> 409
+    r_term = await client.patch(
+        f"/crm/quotations/{qid}",
+        json={"status": "DECLINED"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r_term.status_code == 409
+    assert "status terminal" in r_term.json()["detail"]

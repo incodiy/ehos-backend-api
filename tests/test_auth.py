@@ -28,7 +28,7 @@ async def test_login_success_returns_token_pair(client: AsyncClient) -> None:
     assert body["success"] is True
     assert body["data"]["access_token"]
     assert body["data"]["refresh_token"]
-    assert body["user"]["email"] == ROOT
+    assert body["data"]["user"]["email"] == ROOT
 
 
 async def test_login_bad_password_rejected(client: AsyncClient) -> None:

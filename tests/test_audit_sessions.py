@@ -37,7 +37,7 @@ async def _headers(client: AsyncClient, email: str) -> dict:
 
 # ─── data fixtures (dev DB) ──────────────────────────────────────────────
 
-_DATEFIX_BASE = date(2020, 1, 1) + timedelta(days=uuid.uuid4().int % 20000)
+_DATEFIX_BASE = date(2050, 1, 1) + timedelta(days=uuid.uuid4().int % 50000)
 _DATEFIX_SEQ = 0
 
 
@@ -137,6 +137,13 @@ async def test_create_rejects_unlocked_or_wrong_department(client: AsyncClient) 
             "SELECT id FROM checklist_templates WHERE department='SECURITY_RISK' "
             "AND status!='LOCKED' LIMIT 1"
         ))
+        if draft_id is None:
+            row = await s.execute(text(
+                "INSERT INTO checklist_templates (uuid, department, name, version, status, published_by, created_at) "
+                "VALUES (gen_random_uuid(), 'SECURITY_RISK', 'Draft Test', 'vDraft.1', 'DRAFT', (SELECT id FROM users LIMIT 1), now()) RETURNING id"
+            ))
+            draft_id = row.scalar_one()
+            await s.commit()
     r = await client.post("/audit/sessions", headers=h, json={
         "hotel_id": str(fx["hotel_id"]), "department": "SECURITY_RISK", "date_start": _unique_date(),
         "template_id": str(draft_id),
@@ -198,11 +205,21 @@ async def test_bulk_upsert_submit_and_detail(client: AsyncClient) -> None:
 
     body = (await client.get(f"/audit/sessions/{sess_id}", headers=h)).json()
     assert len(body["data"]["items"]) == n
-    assert body["data"]["session"]["status"] == "DRAFT"
+    assert body["data"]["session"]["status"] == "IN_PROGRESS"
 
     rs = await client.post(f"/audit/sessions/{sess_id}/submit", headers=h)
     assert rs.status_code == 200, rs.text
     assert rs.json()["data"]["status"] == "SUBMITTED"
+
+    # Reopen test (SUBMITTED -> IN_PROGRESS)
+    ro = await client.post(f"/audit/sessions/{sess_id}/reopen", headers=h)
+    assert ro.status_code == 200, ro.text
+    assert ro.json()["data"]["status"] == "IN_PROGRESS"
+
+    # Re-submit
+    rs2 = await client.post(f"/audit/sessions/{sess_id}/submit", headers=h)
+    assert rs2.status_code == 200
+    assert rs2.json()["data"]["status"] == "SUBMITTED"
 
 
 async def test_publish_all_yes_pass(client: AsyncClient) -> None:
@@ -383,3 +400,34 @@ async def test_list_requires_hotel_for_gm(client: AsyncClient) -> None:
     assert r.status_code == 200
     assert r.json()["data"] is not None
     assert "meta" in r.json()
+
+
+async def test_update_and_delete_draft_session(client: AsyncClient) -> None:
+    """Verifikasi PATCH dan DELETE hanya berlaku pada sesi DRAFT."""
+    fx = await _fixtures()
+    h = await _headers(client, CORP_AUDITOR)
+    # 1) Buat sesi DRAFT
+    d_start = _unique_date()
+    r = await client.post("/audit/sessions", headers=h, json={
+        "hotel_id": str(fx["hotel_id"]), "department": "SECURITY_RISK", "date_start": d_start,
+        "template_id": str(fx["template_id"]),
+    })
+    assert r.status_code == 201
+    sess_id = r.json()["data"]["id"]
+
+    # 2) Update saat DRAFT
+    new_date = _unique_date()
+    up_res = await client.patch(f"/audit/sessions/{sess_id}", headers=h, json={
+        "date_start": new_date, "audit_type": "MICRO",
+    })
+    assert up_res.status_code == 200, up_res.text
+    assert up_res.json()["data"]["audit_type"] == "MICRO"
+    assert up_res.json()["data"]["date_start"] == new_date
+
+    # 3) Delete saat DRAFT
+    del_res = await client.delete(f"/audit/sessions/{sess_id}", headers=h)
+    assert del_res.status_code == 200, del_res.text
+
+    # Pastikan sudah terhapus
+    get_res = await client.get(f"/audit/sessions/{sess_id}", headers=h)
+    assert get_res.status_code == 404

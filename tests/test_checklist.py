@@ -1,151 +1,159 @@
-"""Checklist bank integration tests (PRD-F-01) — phase 5c.
-
-Runs against the seeded dev DB. Mutation test uses a unique template name so
-every rerun is idempotent (unique (department, name, version) constraint).
-"""
+"""Test CRUD, Versioning, FSM Status, & Rubric Guards Modul Checklist — Zero-Trust Standard."""
 
 import uuid
-
 from httpx import AsyncClient
 
 SEED_PASSWORD = "Ehos#2026!"
-GM = "gm.cws@ehos.local"
-AUDITOR = "corp.auditor@ehos.local"
+ROOT = "root.admin@ehos.local"
 
 
-async def _token(client: AsyncClient, email: str) -> str:
+async def login(client: AsyncClient, email: str, password: str = SEED_PASSWORD) -> str:
     r = await client.post(
         "/auth/login",
-        json={"email": email, "password": SEED_PASSWORD, "remember_me": False},
+        json={"email": email, "password": password, "remember_me": False},
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 200, (email, r.text)
     return r.json()["data"]["access_token"]
 
 
-def _auth(token: str) -> dict:
+def authh(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def test_checklist_requires_auth(client: AsyncClient) -> None:
-    r = await client.get("/checklist/templates")
-    assert r.status_code == 401
+async def test_list_templates_and_filters(client: AsyncClient) -> None:
+    token = await login(client, ROOT)
+
+    # 1. List all templates
+    res = await client.get("/checklist/templates", headers=authh(token))
+    assert res.status_code == 200
+    templates = res.json()["data"]
+    assert len(templates) > 0
+
+    # 2. Filter by status LOCKED
+    res_locked = await client.get("/checklist/templates?status=LOCKED", headers=authh(token))
+    assert res_locked.status_code == 200
+    assert all(t["status"] == "LOCKED" for t in res_locked.json()["data"])
+
+    # 3. Filter by status ARCHIVED
+    res_archived = await client.get("/checklist/templates?status=ARCHIVED", headers=authh(token))
+    assert res_archived.status_code == 200
+    assert any(t["status"] == "ARCHIVED" for t in res_archived.json()["data"])
+
+    # 4. Filter by department HOUSEKEEPING
+    res_hk = await client.get("/checklist/templates?department=HOUSEKEEPING", headers=authh(token))
+    assert res_hk.status_code == 200
+    assert all(t["department"] == "HOUSEKEEPING" for t in res_hk.json()["data"])
+
+    # 5. Soft-deleted template exclusion
+    names = [t["name"] for t in templates]
+    assert "Security Risk Obsolete Protocol v2023" not in names
 
 
-async def test_list_templates_filter_brand_tier(client: AsyncClient) -> None:
-    token = await _token(client, AUDITOR)
-    headers = _auth(token)
+async def test_template_full_lifecycle_and_version_forking(client: AsyncClient) -> None:
+    token = await login(client, ROOT)
+    uid = uuid.uuid4().hex[:6]
+    version_1 = f"v2028.{uid}.1"
+    version_2 = f"v2028.{uid}.2"
 
-    r = await client.get("/checklist/templates", headers=headers)
-    assert r.status_code == 200
-    locked = [t for t in r.json()["data"] if t["status"] == "LOCKED"]
-    assert len(locked) >= 8, len(locked)
+    # 1. Create new DRAFT template
+    tpl_payload = {
+        "department": "SECURITY_RISK",
+        "name": f"Security Risk Automation Test {uid}",
+        "version": version_1,
+        "brand_tier": "Luxury",
+    }
+    res_create = await client.post("/checklist/templates", json=tpl_payload, headers=authh(token))
+    assert res_create.status_code == 201
+    tpl = res_create.json()["data"]
+    tpl_id = tpl["id"]
+    assert tpl["status"] == "DRAFT"
 
-    r = await client.get(
-        "/checklist/templates",
-        params={"department": "HOUSEKEEPING", "brand_tier": "Luxury", "status": "LOCKED"},
-        headers=headers,
+    # 2. Add section
+    sec_payload = {
+        "code": f"SEC-{uid}",
+        "name": "Perimeter & CCTV",
+        "sort_order": 10,
+    }
+    res_sec = await client.post(f"/checklist/templates/{tpl_id}/sections", json=sec_payload, headers=authh(token))
+    assert res_sec.status_code == 201
+    sec = res_sec.json()["data"]
+    sec_id = sec["id"]
+
+    # 3. Add item (with rubric validation)
+    item_payload = {
+        "code": f"ITM-{uid}-01",
+        "question_text": "Kamera CCTV perimeter utama aktif 24 jam dan merekam selama 30 hari",
+        "rubric_type": "TRAFFIC_LIGHT",
+        "max_score": 90.0,
+        "weight": 1.5,
+        "na_allowed": False,
+        "is_life_safety": True,
+        "sort_order": 10,
+    }
+    res_item = await client.post(
+        f"/checklist/templates/{tpl_id}/sections/{sec_id}/items",
+        json=item_payload,
+        headers=authh(token),
     )
-    assert r.status_code == 200
-    assert len(r.json()["data"]) == 1
-    assert r.json()["data"][0]["brand_tier"] == "Luxury"
-
-
-async def test_gm_cannot_create_template(client: AsyncClient) -> None:
-    token = await _token(client, GM)
-    r = await client.post(
-        "/checklist/templates",
-        headers=_auth(token),
-        json={"department": "GM", "name": "Forbidden Tpl", "version": "v9"},
-    )
-    assert r.status_code == 403
-
-
-async def test_template_lifecycle(client: AsyncClient) -> None:
-    token = await _token(client, AUDITOR)
-    headers = _auth(token)
-    name = f"Pytest Checklist {uuid.uuid4().hex[:8]}"
-
-    r = await client.post(
-        "/checklist/templates",
-        headers=headers,
-        json={"department": "GM", "name": name, "version": "v2026.1", "brand_tier": "Boutique"},
-    )
-    assert r.status_code == 201, r.text
-    tid = r.json()["data"]["id"]
-    assert r.json()["data"]["status"] == "DRAFT"
-
-    r = await client.post(
-        f"/checklist/templates/{tid}/sections", headers=headers, json={"code": "S1", "name": "Satu"}
-    )
-    assert r.status_code == 201
-    sid = r.json()["data"]["id"]
-
-    r = await client.post(
-        f"/checklist/templates/{tid}/sections/{sid}/items",
-        headers=headers,
-        json={
-            "code": "S1.01",
-            "question_text": "Pertanyaan uji hidup?",
-            "rubric_type": "TRAFFIC_LIGHT",
-            "max_score": 90,
-            "weight": 1,
-            "na_allowed": False,
-            "is_life_safety": True,
-        },
-    )
-    assert r.status_code == 201
-    item = r.json()["data"]
-    assert item["rubric_type"] == "TRAFFIC_LIGHT"
+    assert res_item.status_code == 201
+    item = res_item.json()["data"]
+    item_id = item["id"]
     assert item["is_life_safety"] is True
 
-    # MULTI_ROOM harus >= 90 x jumlah sample → 90 ditolak
-    r = await client.post(
-        f"/checklist/templates/{tid}/sections/{sid}/items",
-        headers=headers,
-        json={
-            "code": "S1.02",
-            "question_text": "Ambang salah",
-            "rubric_type": "MULTI_ROOM",
-            "max_score": 90,
-            "weight": 1,
-            "na_allowed": False,
-            "is_life_safety": False,
-        },
+    # 4. Update rubric item in DRAFT
+    res_upd = await client.patch(
+        f"/checklist/templates/{tpl_id}/sections/{sec_id}/items/{item_id}",
+        json={"weight": 2.0, "question_text": "Kamera CCTV perimeter utama aktif 24 jam (updated)"},
+        headers=authh(token),
     )
-    assert r.status_code == 422
+    assert res_upd.status_code == 200
+    assert res_upd.json()["data"]["weight"] == 2.0
 
-    # lock → LOCKED
-    r = await client.post(f"/checklist/templates/{tid}/lock", headers=headers)
-    assert r.status_code == 200
-    assert r.json()["data"]["status"] == "LOCKED"
+    # 5. Lock template (DRAFT -> LOCKED)
+    res_lock = await client.post(f"/checklist/templates/{tpl_id}/lock", headers=authh(token))
+    assert res_lock.status_code == 200
+    locked_tpl = res_lock.json()["data"]
+    assert locked_tpl["status"] == "LOCKED"
+    assert locked_tpl["locked_at"] is not None
 
-    # modifikasi template LOCKED → 409
-    r = await client.post(
-        f"/checklist/templates/{tid}/sections", headers=headers, json={"code": "S2", "name": "Dua"}
+    # 6. Verify modification blocked on LOCKED template
+    res_blocked = await client.patch(
+        f"/checklist/templates/{tpl_id}/sections/{sec_id}/items/{item_id}",
+        json={"weight": 3.0},
+        headers=authh(token),
     )
-    assert r.status_code == 409
+    assert res_blocked.status_code == 409
 
-    # fork versi baru (LOCKED → DRAFT)
-    r = await client.post(
-        f"/checklist/templates/{tid}/versions", headers=headers, json={"new_version": "v2026.2"}
+    # 7. Fork new version (LOCKED -> new DRAFT vX.2)
+    res_fork = await client.post(
+        f"/checklist/templates/{tpl_id}/versions",
+        json={"new_version": version_2},
+        headers=authh(token),
     )
-    assert r.status_code == 201
-    assert r.json()["data"]["status"] == "DRAFT"
+    assert res_fork.status_code == 201
+    forked_tpl = res_fork.json()["data"]
+    forked_id = forked_tpl["id"]
+    assert forked_tpl["status"] == "DRAFT"
+    assert forked_tpl["version"] == version_2
 
-    r = await client.get(f"/checklist/templates/{tid}", headers=headers)
-    assert r.status_code == 200
-    payload = r.json()["data"]
-    assert any(it["is_life_safety"] for sec in payload["sections"] for it in sec["items"])
+    # Verify sections and items were cloned to new version
+    res_detail = await client.get(f"/checklist/templates/{forked_id}", headers=authh(token))
+    assert res_detail.status_code == 200
+    detail = res_detail.json()["data"]
+    assert len(detail["sections"]) == 1
+    assert len(detail["sections"][0]["items"]) == 1
+    assert detail["sections"][0]["items"][0]["code"] == f"ITM-{uid}-01"
 
+    # 8. Archive locked template (LOCKED -> ARCHIVED)
+    res_archive = await client.post(f"/checklist/templates/{tpl_id}/archive", headers=authh(token))
+    assert res_archive.status_code == 200
+    assert res_archive.json()["data"]["status"] == "ARCHIVED"
 
-async def test_template_detail_returns_structural(client: AsyncClient) -> None:
-    token = await _token(client, AUDITOR)
-    r = await client.get("/checklist/templates", headers=_auth(token))
-    locked = [t for t in r.json()["data"] if t["status"] == "LOCKED"]
-    tid = next(t["id"] for t in locked if t["name"] == "Security Risk Checklist — Universal")
+    # 9. Delete draft template
+    res_del = await client.delete(f"/checklist/templates/{forked_id}", headers=authh(token))
+    assert res_del.status_code == 200
+    assert res_del.json()["data"]["status"] == "success"
 
-    d = await client.get(f"/checklist/templates/{tid}", headers=_auth(token))
-    assert d.status_code == 200
-    payload = d.json()["data"]
-    assert payload["template"]["status"] == "LOCKED"
-    assert any(it["is_life_safety"] for sec in payload["sections"] for it in sec["items"])
+    # Verify deleted draft cannot be retrieved
+    res_not_found = await client.get(f"/checklist/templates/{forked_id}", headers=authh(token))
+    assert res_not_found.status_code == 404

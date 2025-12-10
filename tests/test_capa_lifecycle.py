@@ -371,11 +371,11 @@ async def test_assign_and_list_filters(client: AsyncClient) -> None:
     assert before & {t1, t2} == set()  # t1 & t2 belum overdue
     async with SessionLocal() as s:
         await s.execute(text(
-            "UPDATE capa_tickets SET due_at=now() - interval '2 hours' WHERE uuid::text=:id"), {"id": t1})
+            "UPDATE capa_tickets SET due_at=now() - interval '30 days' WHERE uuid::text=:id"), {"id": t1})
         await s.commit()
     r = await client.get("/capa/tickets?only_overdue=true", headers=await _headers(client, CORP_AUDITOR))
     ids = {x["id"] for x in r.json()["data"]}
-    assert ids & {t1, t2} == {t1}  # hanya t1 yang overdue
+    assert ids & {t1, t2} == {t1}  # t1 di-set paling lama overdue → pasti di halaman 1
     async with SessionLocal() as s:  # restore agar tidak menumpuk antar-run
         await s.execute(text(
             "UPDATE capa_tickets SET due_at=now() + interval '24 hours' WHERE uuid::text=:id"), {"id": t1})

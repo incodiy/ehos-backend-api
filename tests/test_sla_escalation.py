@@ -225,7 +225,7 @@ async def test_run_sla_escalation_auto_escalates_overdue(client: AsyncClient) ->
     ticket_id = await _seed_one_ticket(client, fx, fail_code=_pick_item(fx, life_safety=False)["code"])
     async with SessionLocal() as s:
         await s.execute(text(
-            "UPDATE capa_tickets SET due_at = now() - interval '2 hours' WHERE uuid::text=:id"
+            "UPDATE capa_tickets SET due_at = now() - interval '30 days' WHERE uuid::text=:id"
         ), {"id": ticket_id})
         await s.commit()
 
@@ -345,3 +345,50 @@ async def test_sla_status_in_detail_and_notification_payload(client: AsyncClient
     assert p["priority"] == 1 and p["sla_hours"] == 24
     assert p["status"] == "OPEN" and p["due_at"]
     assert p["url"] == f"/capa/tickets/{ticket_id}"
+
+
+# ─── 9c — field SLA di list & presign-GET bukti (verification hub) ────────
+
+async def test_list_tickets_sla_status_and_overdue_fields(client: AsyncClient) -> None:
+    fx = await _fixtures()
+    ticket_id = await _seed_one_ticket(client, fx, fail_code=_pick_item(fx, life_safety=True)["code"])
+    async with SessionLocal() as s:
+        await s.execute(text(
+            "UPDATE capa_tickets SET due_at = now() - interval '30 days' WHERE uuid::text=:id"
+        ), {"id": ticket_id})
+        await s.commit()
+
+    r = await client.get(f"/capa/tickets?hotel_id={fx['hotel_id']}&status=OPEN", headers=await _headers(client, GM_CWS))
+    assert r.status_code == 200, r.text
+    rows = r.json()["data"]
+    row = next(x for x in rows if str(x["id"]) == ticket_id)
+    assert row["sla_status"] == "OVERDUE" and row["overdue"] is True
+
+    # status chip non-DB (OVERDUE dan COMPLETED bukan status DB legal, harus 422)
+    for bad in ("COMPLETED", "OVERDUE"):
+        nr = await client.get(f"/capa/tickets?status={bad}", headers=await _headers(client, CORP_EXEC))
+        assert nr.status_code == 422, (bad, nr.text)
+
+
+async def test_presign_get_media_requires_verified(client: AsyncClient) -> None:
+    fx = await _fixtures()
+    ticket_id = await _seed_one_ticket(client, fx, fail_code=_pick_item(fx, life_safety=False)["code"])
+    h_read = await _headers(client, CORP_EXEC)
+
+    # resolve → media AFTER PENDING (belum dikonfirmasi) → presign-GET harus 409 (G4 tanpa stub)
+    await client.post(f"/capa/tickets/{ticket_id}/resolve", headers=await _headers(client, "hod.srm.cws@ehos.local"),
+                      json={"note": "Fix", "media": _after_media()})
+    r = await client.get(f"/capa/tickets/{ticket_id}/media", headers=h_read)
+    assert r.status_code == 200, r.text
+    items = r.json()["data"]["items"]
+    pend = next(m for m in items if m["phase"] == "AFTER")
+    rr = await client.get(f"/capa/tickets/{ticket_id}/media/{pend['id']}/presign-get", headers=h_read)
+    assert rr.status_code == 409, rr.text
+
+    # konfirmasi → VERIFIED → presign-GET valid
+    await _confirm_after_media(client, ticket_id)
+    ok = await client.get(f"/capa/tickets/{ticket_id}/media/{pend['id']}/presign-get", headers=h_read)
+    assert ok.status_code == 200, ok.text
+    got = ok.json()["data"]
+    assert got["media_id"] == pend["id"]
+    assert got["presigned_url"].startswith("http") and got["expires_in"] == 300
