@@ -18,6 +18,7 @@ class RegionCreateRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     country: str = Field(default="Indonesia", max_length=50)
     sales_region: str | None = Field(default=None, max_length=100)
+    ecommerce_region: str | None = Field(default=None, max_length=100)
     status: RegionStatus = Field(default=RegionStatus.ACTIVE)
 
 
@@ -26,6 +27,7 @@ class RegionUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=100)
     country: str | None = Field(default=None, max_length=50)
     sales_region: str | None = Field(default=None, max_length=100)
+    ecommerce_region: str | None = Field(default=None, max_length=100)
     status: RegionStatus | None = None
 
 
@@ -37,6 +39,7 @@ class RegionOut(BaseModel):
     name: str
     country: str | None = None
     sales_region: str | None = None
+    ecommerce_region: str | None = None
     status: str = "ACTIVE"
     created_at: datetime | None = None
     updated_at: datetime | None = None

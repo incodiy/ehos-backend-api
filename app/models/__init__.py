@@ -18,7 +18,7 @@ from app.models.crm import (
 )
 from app.models.cross import AuditLog, Notification, Translation
 from app.models.legacy import LegacyIngestionBatch, LegacyScoreRow
-from app.models.master import Brand, Hotel, HotelDepartment, Province, Region
+from app.models.master import Brand, City, Hotel, HotelContact, HotelDepartment, Province, Region
 from app.models.users import (
     LoginAudit,
     Permission,
@@ -44,9 +44,11 @@ __all__ = [
     "ChecklistItem",
     "ChecklistSection",
     "ChecklistTemplate",
+    "City",
     "Finding",
     "GovernmentSbmRate",
     "Hotel",
+    "HotelContact",
     "HotelDepartment",
     "Lead",
     "LeadActivity",

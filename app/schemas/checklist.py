@@ -29,6 +29,10 @@ class TemplateStatus(StrEnum):
     ARCHIVED = "ARCHIVED"
 
 
+class TemplateStatusUpdateRequest(BaseModel):
+    status: TemplateStatus
+
+
 class RubricType(StrEnum):
     TRAFFIC_LIGHT = "TRAFFIC_LIGHT"
     NUMERIC_SCALE = "NUMERIC_SCALE"

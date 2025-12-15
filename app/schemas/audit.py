@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field
@@ -24,6 +24,37 @@ class SessionCreateRequest(BaseModel):
     date_start: date | None = None
     date_end: date | None = None
     client_id: uuid.UUID | None = None
+
+
+class EnsureDepartmentRequest(BaseModel):
+    source_session_id: HybridId
+    department: str = Field(
+        ...,
+        pattern="^(GM|HOUSEKEEPING|KITCHEN_FB|SECURITY_RISK)$",
+    )
+    template_id: HybridId | None = None
+    note: str | None = None
+
+
+class IntegratedCycleCreateRequest(BaseModel):
+    hotel_id: HybridId
+    audit_type: str = Field(default="FULL", pattern="^(FULL|MICRO|FOLLOWUP)$")
+    date_start: date | None = None
+    date_end: date | None = None
+    client_id: uuid.UUID | None = None
+    departments: list[str] = Field(
+        default=["SECURITY_RISK", "KITCHEN_FB", "HOUSEKEEPING"],
+        description="Daftar departemen yang akan dibuatkan sesi dalam siklus audit",
+    )
+
+
+class IntegratedCycleCreateResult(BaseModel):
+    primary_session_id: uuid.UUID
+    created_sessions: list[AuditSessionOut]
+    hotel_id: uuid.UUID
+    date_start: date | None = None
+    date_end: date | None = None
+    audit_type: str
 
 
 class SessionUpdateRequest(BaseModel):
@@ -60,14 +91,60 @@ class AuditSessionOut(BaseModel):
     client_id: uuid.UUID | None = None
 
 
+class AuditPeriodDepartmentOut(BaseModel):
+    session_id: uuid.UUID
+    score: float | None = None
+    status: str
+    pass_fail: str | None = None
+
+
+class AuditPeriodOut(BaseModel):
+    period_id: str
+    year: int
+    month_num: int
+    month_name: str
+    date_start: str
+    date_end: str | None = None
+    status: str
+    average_score: float | None = None
+    department_scores: dict[str, AuditPeriodDepartmentOut] = Field(default_factory=dict)
+    primary_session_id: uuid.UUID
+    auditor_name: str | None = None
+
+
+class LastAuditPeriodOut(BaseModel):
+    year: int
+    month_num: int
+    month_name: str
+    date_start: str
+    date_end: str | None = None
+
+
+class HotelAuditSummaryOut(BaseModel):
+    hotel_id: uuid.UUID
+    hotel_code: str
+    hotel_name: str
+    hotel_image_url: str | None = None
+    brand_tier: str
+    city: str
+    total_periods: int
+    cumulative_average_score: float | None = None
+    last_audit_period: LastAuditPeriodOut | None = None
+    last_status: str
+    periods: list[AuditPeriodOut] = Field(default_factory=list)
+
+
+
 class ScoreUpsert(BaseModel):
     item_id: HybridId
     room_ref: str | None = None
     value: str | None = None
+    score: float | None = None
     is_na: bool = False
     note: str | None = None
-    scored_at: datetime
-    updated_at: datetime
+    scored_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    evidence_media_keys: list[str] = Field(default_factory=list)
 
 
 class BulkScoreUpsert(BaseModel):
