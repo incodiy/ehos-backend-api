@@ -179,7 +179,7 @@ async def find_locked_template(session, department: str, brand_tier: str | None)
     Prioritas: brand_tier persis → universal (None). Hanya template berstatus
     LOCKED (immutable snapshot B3). Mengembalikan row atau None.
     """
-    from sqlalchemy import select
+    from sqlalchemy import case, select
 
     from app.models.checklist import ChecklistTemplate
 
@@ -190,7 +190,10 @@ async def find_locked_template(session, department: str, brand_tier: str | None)
                 ChecklistTemplate.department == key_department,
                 ChecklistTemplate.status == "LOCKED",
             )
-            .order_by(ChecklistTemplate.locked_at.desc())
+            .order_by(
+                case((ChecklistTemplate.name.ilike("%Operations%"), 0), else_=1),
+                ChecklistTemplate.locked_at.desc(),
+            )
         )
         if key_tier is not None:
             stmt = stmt.where(ChecklistTemplate.brand_tier == key_tier)

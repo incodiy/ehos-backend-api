@@ -12,7 +12,8 @@ import uuid
 from datetime import UTC, date, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import get_by_uuid
@@ -75,7 +76,37 @@ async def create_session(
             select(AuditSession).where(AuditSession.client_id == payload.client_id)
         )
         if existing is not None:
+            existing.hotel = hotel
+            existing.template = template
+            existing.auditor = current
             return existing
+
+    target_date = payload.date_start or date.today()
+
+    # Deduplikasi periodik (uq_audit_hotel_dept_period_type):
+    existing_period = await session.scalar(
+        select(AuditSession).where(
+            AuditSession.hotel_id == hotel.id,
+            AuditSession.department == payload.department,
+            AuditSession.date_start == target_date,
+            AuditSession.audit_type == payload.audit_type,
+        )
+    )
+    if existing_period is not None:
+        if existing_period.status in {"DRAFT", "IN_PROGRESS"}:
+            existing_period.hotel = hotel
+            existing_period.template = template
+            existing_period.auditor = current
+            if payload.date_end and existing_period.date_end != payload.date_end:
+                existing_period.date_end = payload.date_end
+                await session.commit()
+                await session.refresh(existing_period)
+            return existing_period
+        raise HTTPException(
+            409,
+            f"Sesi audit {payload.department} untuk hotel ini pada tanggal {target_date} "
+            f"sudah ada dan berstatus {existing_period.status}.",
+        )
 
     new_session = AuditSession(
         hotel_id=hotel.id,
@@ -84,7 +115,7 @@ async def create_session(
         audit_type=payload.audit_type,
         status="DRAFT",
         auditor_id=current.id,
-        date_start=payload.date_start or date.today(),
+        date_start=target_date,
         date_end=payload.date_end,
         origin="SYSTEM",
         sync_status="SYNCED",
@@ -93,7 +124,25 @@ async def create_session(
         updated_by=current.id,
     )
     session.add(new_session)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        existing_period = await session.scalar(
+            select(AuditSession).where(
+                AuditSession.hotel_id == hotel.id,
+                AuditSession.department == payload.department,
+                AuditSession.date_start == target_date,
+                AuditSession.audit_type == payload.audit_type,
+            )
+        )
+        if existing_period is not None:
+            existing_period.hotel = hotel
+            existing_period.template = template
+            existing_period.auditor = current
+            return existing_period
+        raise HTTPException(409, "Konflik data: Sesi audit untuk hotel dan tanggal ini sudah ada.")
+
     await session.refresh(new_session)
     new_session.hotel = hotel
     new_session.template = template
@@ -174,6 +223,19 @@ async def record_scores(
         )
 
     items = await _template_items(session, sess.template_id)
+    dept_templates = (
+        await session.scalars(
+            select(ChecklistTemplate).where(
+                ChecklistTemplate.department == sess.department,
+                ChecklistTemplate.status.in_(["LOCKED", "DRAFT"]),
+            )
+        )
+    ).all()
+    for dt in dept_templates:
+        if dt.id != sess.template_id:
+            dt_items = await _template_items(session, dt.id)
+            items.update(dt_items)
+
     upserted = conflicts = 0
     conflict_ids: list[uuid.UUID] = []
 
@@ -195,7 +257,9 @@ async def record_scores(
             )
         )
         if existing is not None:
-            newer_device = s.updated_at > existing.updated_at
+            s_up = s.updated_at if s.updated_at.tzinfo else s.updated_at.replace(tzinfo=UTC)
+            ex_up = existing.updated_at if existing.updated_at.tzinfo else existing.updated_at.replace(tzinfo=UTC)
+            newer_device = s_up > ex_up
             if not newer_device and (
                 (existing.value or None, existing.is_na) != (s.value or None, s.is_na)
             ):

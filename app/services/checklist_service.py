@@ -253,6 +253,22 @@ class ChecklistService:
             )
         template.status = TemplateStatus.LOCKED.value
         template.locked_at = datetime.now(UTC)
+
+        # Auto-archive previous LOCKED versions for the same department and template name
+        prev_locked = (
+            await session.scalars(
+                select(ChecklistTemplate).where(
+                    ChecklistTemplate.department == template.department,
+                    ChecklistTemplate.name == template.name,
+                    ChecklistTemplate.status == TemplateStatus.LOCKED.value,
+                    ChecklistTemplate.id != template.id,
+                    ChecklistTemplate.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        for p in prev_locked:
+            p.status = TemplateStatus.ARCHIVED.value
+
         await session.commit()
         await session.refresh(template)
         return TemplateOut.model_validate(template)
@@ -270,6 +286,21 @@ class ChecklistService:
                 detail="Hanya template berstatus LOCKED yang dapat diarsipkan (ARCHIVED)",
             )
         template.status = TemplateStatus.ARCHIVED.value
+        await session.commit()
+        await session.refresh(template)
+        return TemplateOut.model_validate(template)
+
+    @classmethod
+    async def update_template_status(
+        cls,
+        session: AsyncSession,
+        template_id: HybridId,
+        new_status: TemplateStatus,
+    ) -> TemplateOut:
+        template = await cls.get_template(session, template_id)
+        template.status = new_status.value
+        if new_status == TemplateStatus.LOCKED and not template.locked_at:
+            template.locked_at = datetime.now(UTC)
         await session.commit()
         await session.refresh(template)
         return TemplateOut.model_validate(template)

@@ -20,18 +20,19 @@ from app.models.cross import Translation
 
 async def load_report_translations(
     session: AsyncSession,
-    template_id: int,
+    template_id: int | list[int] | set[int],
     locale: str = "en",
 ) -> dict:
-    """Peta terjemahan konten laporan utk satu template sesi.
+    """Peta terjemahan konten laporan utk satu/beberapa template sesi.
 
     Returns:
         {"items": {item_id: translated_question_text},
          "sections": {section_id: translated_name}}
     """
+    t_ids = [template_id] if isinstance(template_id, int) else list(template_id)
     sections = list(
         (await session.scalars(
-            select(ChecklistSection).where(ChecklistSection.template_id == template_id)
+            select(ChecklistSection).where(ChecklistSection.template_id.in_(t_ids))
         )).all()
     )
     if not sections:

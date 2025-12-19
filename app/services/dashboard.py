@@ -119,7 +119,7 @@ async def _hotels_rows(session: AsyncSession, hotel_ids: set[int] | None) -> lis
     clause, params = _in_clause("h.id", hotel_ids, prefix="ho", leading=" WHERE ")
     rows = await session.execute(text(
         "SELECT h.id, h.uuid, h.code, h.name, b.tier, r.name AS region, "
-        "       ST_X(h.geo::geometry)::float8 AS lat, ST_Y(h.geo::geometry)::float8 AS lng "
+        "       ST_Y(h.geo::geometry)::float8 AS lat, ST_X(h.geo::geometry)::float8 AS lng "
         "FROM hotels h "
         "JOIN brands b ON b.id = h.brand_id "
         "LEFT JOIN regions r ON r.id = h.region_id" + clause + " "

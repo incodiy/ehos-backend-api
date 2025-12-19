@@ -191,7 +191,7 @@ async def resolve_ticket(
             gps_valid=m.gps_valid,
             captured_at=m.captured_at,
             server_captured_at=datetime.now(UTC),
-            upload_status="PENDING",
+            upload_status="VERIFIED",
         ))
     return ticket
 

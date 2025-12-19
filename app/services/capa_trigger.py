@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import CapaStatusHistory, CapaTicket, Finding, HotelDepartment
+from app.models import AuditMedia, CapaMedia, CapaStatusHistory, CapaTicket, Finding, HotelDepartment
 
 SEVERITY_SLA: dict[str, tuple[int, int]] = {
     "CRITICAL": (1, 24),
@@ -49,6 +49,7 @@ async def auto_create_capa_ticket(
 
     Idempoten per finding: bila tiket dengan finding_id tsb sudah ada
     (retry/partial), kembalikan yang lama — mencegah duplikat receipt.
+    Menautkan foto temuan audit (AuditMedia) -> CapaMedia BEFORE secara otomatis.
     """
     existing = await session.scalar(
         select(CapaTicket).where(CapaTicket.finding_id == finding.id).limit(1)
@@ -84,4 +85,35 @@ async def auto_create_capa_ticket(
         actor_id=actor_id,
         note="Auto-created dari temuan audit",
     ))
+
+    # Auto-link foto bukti temuan dari audit (AuditMedia) ke CapaMedia BEFORE
+    conditions = [AuditMedia.finding_id == finding.id]
+    if finding.item_id is not None:
+        conditions.append(AuditMedia.item_id == finding.item_id)
+
+    from sqlalchemy import or_
+    audit_medias = (await session.scalars(
+        select(AuditMedia).where(or_(*conditions))
+    )).all()
+
+    for am in audit_medias:
+        session.add(CapaMedia(
+            ticket_id=ticket.id,
+            phase="BEFORE",
+            source_camera=am.source_camera or "LIVE_CAMERA",
+            object_key=am.object_key,
+            file_name=am.object_key.split("/")[-1] if am.object_key else f"audit-before-{finding.uuid.hex[:6]}.webp",
+            mime=am.mime or "image/webp",
+            width=am.width or 1280,
+            height=am.height or 960,
+            size_bytes=am.size_bytes or 200_000,
+            checksum_sha256=am.checksum_sha256 or "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            gps_lat=am.gps_lat,
+            gps_lng=am.gps_lng,
+            gps_valid=am.gps_valid,
+            captured_at=am.captured_at,
+            server_captured_at=am.server_captured_at or datetime.now(UTC),
+            upload_status="CONFIRMED",
+        ))
+
     return ticket

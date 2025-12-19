@@ -40,6 +40,7 @@ async def list_regions(
                 Region.name.ilike(term),
                 Region.country.ilike(term),
                 Region.sales_region.ilike(term),
+                Region.ecommerce_region.ilike(term),
             )
         )
 
@@ -111,6 +112,7 @@ async def get_region_by_id_or_code(
         name=region.name,
         country=region.country,
         sales_region=region.sales_region,
+        ecommerce_region=region.ecommerce_region,
         status=region.status,
         created_at=region.created_at,
         updated_at=region.updated_at,
@@ -139,6 +141,7 @@ async def create_region(
         name=data.name.strip(),
         country=data.country.strip() if data.country else "Indonesia",
         sales_region=data.sales_region.strip() if data.sales_region else None,
+        ecommerce_region=data.ecommerce_region.strip() if data.ecommerce_region else None,
         status=data.status.value,
     )
     session.add(region)
@@ -191,7 +194,9 @@ async def update_region(
     if data.country is not None:
         region.country = data.country.strip()
     if data.sales_region is not None:
-        region.sales_region = data.sales_region.strip()
+        region.sales_region = data.sales_region.strip() if data.sales_region else None
+    if data.ecommerce_region is not None:
+        region.ecommerce_region = data.ecommerce_region.strip() if data.ecommerce_region else None
     if data.status is not None:
         region.status = data.status.value
 

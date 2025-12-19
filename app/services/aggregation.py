@@ -277,21 +277,35 @@ async def aggregate_session(session: AsyncSession, session_id: int) -> SessionSc
     from sqlalchemy import select
 
     from app.models.audit import AuditItemScore, AuditSession
-    from app.models.checklist import ChecklistItem, ChecklistSection
+    from app.models.checklist import ChecklistItem, ChecklistSection, ChecklistTemplate
 
     sess_row = await session.get(AuditSession, session_id)
     if sess_row is None:
         raise AggregationError(f"Audit session {session_id} tidak ditemukan")
 
+    template_ids = {sess_row.template_id}
+    dept_templates = (
+        await session.scalars(
+            select(ChecklistTemplate.id).where(
+                ChecklistTemplate.department == sess_row.department,
+                ChecklistTemplate.status.in_(["LOCKED", "DRAFT"]),
+            )
+        )
+    ).all()
+    template_ids.update(dept_templates)
+
     sections = list(
         (await session.scalars(
-            select(ChecklistSection).where(ChecklistSection.template_id == sess_row.template_id)
+            select(ChecklistSection)
+            .where(ChecklistSection.template_id.in_(template_ids))
+            .order_by(ChecklistSection.sort_order.asc(), ChecklistSection.code.asc())
         )).all()
     )
     items = list(
         (await session.scalars(
             select(ChecklistItem)
             .where(ChecklistItem.section_id.in_([s.id for s in sections]))
+            .order_by(ChecklistItem.sort_order.asc(), ChecklistItem.code.asc())
         )).all()
     )
     score_rows = (await session.scalars(
