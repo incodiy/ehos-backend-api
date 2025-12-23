@@ -18,6 +18,7 @@ from app.schemas.checklist import (
     TemplateDetail,
     TemplateOut,
     TemplateStatus,
+    TemplateStatusUpdateRequest,
     VersionCreateRequest,
 )
 from app.schemas.common import Envelope, HybridId
@@ -133,6 +134,24 @@ async def archive_template(
     data = await ChecklistService.archive_template(
         session=session,
         template_id=id,
+    )
+    return Envelope(data=data)
+
+
+@router.patch(
+    "/templates/{id}/status",
+    response_model=Envelope[TemplateOut],
+    dependencies=[_write_guard],
+)
+async def update_template_status(
+    id: HybridId,
+    body: TemplateStatusUpdateRequest,
+    session: DbSession,
+) -> Envelope[TemplateOut]:
+    data = await ChecklistService.update_template_status(
+        session=session,
+        template_id=id,
+        new_status=body.status,
     )
     return Envelope(data=data)
 
