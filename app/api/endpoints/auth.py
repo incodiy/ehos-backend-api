@@ -60,9 +60,9 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _fail_login(session: DbSession, user_id: uuid.UUID | None, email: str, reason: str) -> HTTPException:
+async def _fail_login(session: DbSession, user_id: int | None, email: str, reason: str) -> HTTPException:
     session.add(LoginAudit(user_id=user_id, email_attempted=email, success=False, reason=reason))
-    session.commit()  # persisted before raising — get_db teardown would otherwise roll it back
+    await session.commit()  # persisted before raising — get_db teardown would otherwise roll it back
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Email atau password salah",
@@ -76,11 +76,11 @@ async def login(body: LoginRequest, session: DbSession) -> LoginResponse:
         select(User).where(User.email == email, User.deleted_at.is_(None))
     )
     if user is None:
-        raise _fail_login(session, None, email, "user_not_found")
+        raise await _fail_login(session, None, email, "user_not_found")
     if not user.is_active:
-        raise _fail_login(session, user.id, email, "account_disabled")
+        raise await _fail_login(session, user.id, email, "account_disabled")
     if not verify_password(body.password, user.password_hash):
-        raise _fail_login(session, user.id, email, "bad_password")
+        raise await _fail_login(session, user.id, email, "bad_password")
 
     access_token = create_access_token(str(user.uuid))
     refresh_token = create_refresh_token(str(user.uuid))

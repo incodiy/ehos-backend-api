@@ -83,6 +83,60 @@ async def test_sales_can_read_users_scoped(client: AsyncClient) -> None:
     assert r.status_code == 200  # HOTEL_SALES punya user:read:hotel
 
 
+async def test_gm_list_users_isolated_scope(client: AsyncClient) -> None:
+    """Verifikasi P0 Scope Isolation: GM CWS hanya melihat staf yang terhubung ke CWS."""
+    gm_token = await login(client, GM_CWS)
+    r = await client.get("/users", headers=authh(gm_token))
+    assert r.status_code == 200
+    users = r.json()["data"]
+    emails = {u["email"] for u in users}
+
+    # Akun CWS harus ada
+    assert "gm.cws@ehos.local" in emails or "hod.hk.cws@ehos.local" in emails
+    # Akun unit lain (SQYO) atau korporat murni (ROOT) TIDAK boleh bocor ke list GM CWS
+    assert "gm.sqyo@ehos.local" not in emails
+    assert "root.admin@ehos.local" not in emails
+
+
+async def test_list_inactive_users_and_reactivate(client: AsyncClient) -> None:
+    """Verifikasi query status INACTIVE dan toggle reactivate."""
+    root = await login(client, ROOT)
+    cws_id = await _hotel_id(client, root, "CWS")
+    email = f"qa.inact.{uuid.uuid4().hex[:6]}@ehos.local"
+
+    # 1. Buat user baru (ACTIVE)
+    await _create_temp_user(client, root, email, "HOTEL_HOD_TECH", cws_id)
+    uid = (await client.get(f"/users?search={email}", headers=authh(root))).json()["data"][0]["id"]
+
+    # 2. Deactivate user
+    r_deact = await client.delete(f"/users/{uid}", headers=authh(root))
+    assert r_deact.status_code == 204
+
+    # 3. Query status ACTIVE (default) — inactive user tidak boleh muncul
+    r_act = await client.get(f"/users?status=ACTIVE&search={email}", headers=authh(root))
+    assert r_act.status_code == 200
+    assert len(r_act.json()["data"]) == 0
+
+    # 4. Query status INACTIVE — inactive user harus muncul
+    r_inact = await client.get(f"/users?status=INACTIVE&search={email}", headers=authh(root))
+    assert r_inact.status_code == 200
+    assert len(r_inact.json()["data"]) == 1
+    assert r_inact.json()["data"][0]["email"] == email
+
+    # 5. Reactivate user via DELETE toggle
+    r_toggle = await client.delete(f"/users/{uid}", headers=authh(root))
+    assert r_toggle.status_code == 204
+
+    # 6. Verifikasi akun sekarang ada di ACTIVE
+    r_act2 = await client.get(f"/users?status=ACTIVE&search={email}", headers=authh(root))
+    assert r_act2.status_code == 200
+    assert len(r_act2.json()["data"]) == 1
+    assert r_act2.json()["data"][0]["email"] == email
+
+    # 7. Cleanup
+    await client.delete(f"/users/{uid}", headers=authh(root))
+
+
 async def test_gm_delegated_create_hod_in_scope(client: AsyncClient) -> None:
     root = await login(client, ROOT)
     gm = await login(client, GM_CWS)
@@ -237,3 +291,52 @@ async def test_create_deactivate_reactivate_toggle(client: AsyncClient) -> None:
     # cleanup (soft-delete final)
     r = await client.delete(f"/users/{uid}", headers=authh(root))
     assert r.status_code == 204
+
+
+async def test_user_creation_with_phone_and_relations(client: AsyncClient) -> None:
+    root = await login(client, ROOT)
+    cws_id = await _hotel_id(client, root, "CWS")
+    sqyo_id = await _hotel_id(client, root, "SQYO")
+
+    email = f"qa.full.{uuid.uuid4().hex[:6]}@ehos.local"
+    phone_number = "+6281299998888"
+
+    r = await client.post(
+        "/users",
+        headers=authh(root),
+        json={
+            "email": email,
+            "name": "QA Full User",
+            "phone": phone_number,
+            "role_code": "HOTEL_GM",
+            "hotel_ids": [cws_id, sqyo_id],
+            "preferred_locale": "en",
+            "password": SEED_PASSWORD,
+        },
+    )
+    assert r.status_code == 201, r.text
+    created = r.json()["data"]
+    uid = created["id"]
+    assert created["phone"] == phone_number
+    assert created["preferred_locale"] == "en"
+    assert created["role"] is not None
+    assert created["role"]["code"] == "HOTEL_GM"
+    assert len(created["hotels"]) == 2
+    hotel_codes = {h["code"] for h in created["hotels"]}
+    assert "CWS" in hotel_codes
+    assert "SQYO" in hotel_codes
+
+    # Test patch without preferred_locale preserves "en"
+    patch_r = await client.patch(
+        f"/users/{uid}",
+        headers=authh(root),
+        json={"name": "QA Full User Updated", "phone": "+6281299997777"},
+    )
+    assert patch_r.status_code == 200, patch_r.text
+    patched = patch_r.json()["data"]
+    assert patched["name"] == "QA Full User Updated"
+    assert patched["phone"] == "+6281299997777"
+    assert patched["preferred_locale"] == "en"  # Locale preserved!
+
+    # Cleanup
+    await client.delete(f"/users/{uid}", headers=authh(root))

@@ -51,6 +51,7 @@ async def _fixtures():
         template_id = (await s.execute(text(
             "SELECT id FROM checklist_templates "
             "WHERE department='SECURITY_RISK' AND status='LOCKED' "
+            "AND name LIKE 'Security Risk Checklist%' "
             "ORDER BY locked_at DESC LIMIT 1"
         ))).scalar_one()
         items = await s.execute(text(
@@ -106,7 +107,7 @@ async def _publish_session_dept(client: AsyncClient, department: str) -> str:
     async with SessionLocal() as s:
         template_id = (await s.execute(text(
             "SELECT id FROM checklist_templates "
-            "WHERE department=:d AND status='LOCKED' ORDER BY locked_at DESC LIMIT 1"
+            "WHERE department=:d AND status='LOCKED' AND name LIKE '%Checklist%' ORDER BY locked_at DESC LIMIT 1"
         ), {"d": department})).scalar_one()
         hotel_id = await s.scalar(text("SELECT id FROM hotels WHERE code='CWS'"))
         items = (await s.execute(text(

@@ -16,12 +16,14 @@ from app.api.endpoints import (
     master,
     notifications,
     regions,
+    roles,
     translations,
     users,
 )
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(roles.router)
 api_router.include_router(users.router)
 api_router.include_router(regions.router)
 api_router.include_router(brands.router)
