@@ -65,7 +65,7 @@ async def seed_audit_master_data(session: AsyncSession) -> None:
             version="v2026.1",
             brand_tier=None,
             status="LOCKED",
-            locked_at=datetime.now(UTC),
+            locked_at=datetime(2025, 1, 1, tzinfo=UTC),
             published_by=publisher_id,
         )
         session.add(sec_tpl)
@@ -156,7 +156,7 @@ async def seed_audit_master_data(session: AsyncSession) -> None:
             version="v2026.1",
             brand_tier=None,
             status="LOCKED",
-            locked_at=datetime.now(UTC),
+            locked_at=datetime(2025, 1, 1, tzinfo=UTC),
             published_by=publisher_id,
         )
         session.add(kfb_tpl)
@@ -255,7 +255,7 @@ async def seed_audit_master_data(session: AsyncSession) -> None:
             version="v2026.1",
             brand_tier=None,
             status="LOCKED",
-            locked_at=datetime.now(UTC),
+            locked_at=datetime(2025, 1, 1, tzinfo=UTC),
             published_by=publisher_id,
         )
         session.add(hk_tpl)
@@ -344,7 +344,7 @@ async def seed_audit_master_data(session: AsyncSession) -> None:
             version="v2026.1",
             brand_tier=None,
             status="LOCKED",
-            locked_at=datetime.now(UTC),
+            locked_at=datetime(2025, 1, 1, tzinfo=UTC),
             published_by=publisher_id,
         )
         session.add(rc_tpl)

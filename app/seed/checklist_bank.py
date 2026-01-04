@@ -740,7 +740,7 @@ async def seed_checklist_bank(session: AsyncSession, published_by: uuid.UUID) ->
         )
         tpl = tpl.on_conflict_do_update(
             index_elements=[ChecklistTemplate.department, ChecklistTemplate.name, ChecklistTemplate.version],
-            set_={"brand_tier": brand_tier, "status": "LOCKED"},
+            set_={"brand_tier": brand_tier, "status": "LOCKED", "locked_at": datetime.now(UTC)},
         )
         await session.execute(tpl)
         template_id = await session.scalar(
