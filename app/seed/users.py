@@ -11,7 +11,7 @@ natural composite keys. Seed password is a well-known *dev* value with
 
 import uuid
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,10 +28,10 @@ from app.models import (
 
 SEED_PASSWORD = "Ehos#2026!"
 
-# email -> (name, role_code, [hotel_codes], region-hotels, region, primary)
+# email -> (name, role_code, [hotel_codes], region-hotels, region, primary, is_active, locale, last_login)
 USERS: list[dict] = [
     {"email": "root.admin@ehos.local", "name": "Root Admin", "role": "ROOT_ADMIN"},
-    {"email": "corp.exec@ehos.local", "name": "Corporate Executive", "role": "CORP_EXEC"},
+    {"email": "corp.exec@ehos.local", "name": "Corporate Executive", "role": "CORP_EXEC", "locale": "en"},
     {"email": "corp.auditor@ehos.local", "name": "Corporate QA Auditing", "role": "CORP_AUDITOR"},
     {
         "email": "rom.jawa@ehos.local",
@@ -84,6 +84,14 @@ USERS: list[dict] = [
     },
     {"email": "finance.cws@ehos.local", "name": "Finance CWS", "role": "HOTEL_FINANCE", "hotels": ["CWS"]},
     {"email": "client.public@ehos.local", "name": "Public Client", "role": "PUBLIC_CLIENT"},
+    {
+        "email": "staff.inactive.cws@ehos.local",
+        "name": "Mantan Staf CWS (Nonaktif)",
+        "role": "HOTEL_HOD_TECH",
+        "hotels": ["CWS"],
+        "phone": "+6281200000999",
+        "is_active": False,
+    },
 ]
 
 
@@ -100,33 +108,40 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
 
     resolved: dict[str, uuid.UUID] = {}
 
-    async def _upsert_user(email: str, name: str, created_by: uuid.UUID | None, phone: str | None = None) -> uuid.UUID:
-        stmt = pg_insert(User).values(
+    async def _upsert_user(
+        email: str,
+        name: str,
+        created_by: uuid.UUID | None,
+        phone: str | None = None,
+        locale: str = "id",
+        is_active: bool = True,
+    ) -> uuid.UUID:
+        existing = await session.scalar(select(User).where(User.email == email))
+        if existing:
+            existing.name = name
+            existing.phone = phone
+            existing.preferred_locale = locale
+            existing.is_active = is_active
+            existing.deleted_at = func.now() if not is_active else None
+            existing.updated_by = created_by if created_by is not None else existing.updated_by
+            await session.flush()
+            return existing.id
+
+        user = User(
             email=email,
             name=name,
             password_hash=hash_password(SEED_PASSWORD),
-            is_active=True,
+            is_active=is_active,
             must_change_password=True,
-            preferred_locale="id",
+            preferred_locale=locale,
             phone=phone,
             created_by=created_by,
             updated_by=created_by,
+            deleted_at=func.now() if not is_active else None,
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[User.email],
-            index_where=text("deleted_at IS NULL"),
-            set_={
-                "name": name,
-                "phone": phone,
-                "must_change_password": True,
-                "updated_by": created_by if created_by is not None else User.updated_by,
-            },
-        )
-        await session.execute(stmt)
-        user_id = await session.scalar(select(User.id).where(User.email == email, User.deleted_at.is_(None)))
-        if user_id is None:
-            raise RuntimeError(f"User {email} could not be resolved after upsert")
-        return user_id
+        session.add(user)
+        await session.flush()
+        return user.id
 
     root_email = "root.admin@ehos.local"
     root_user_id = await _upsert_user(root_email, "Root Admin", None)
@@ -141,7 +156,14 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
         email = item["email"]
         if email == root_email:
             continue
-        user_id = await _upsert_user(email, item["name"], root_user_id, item.get("phone"))
+        user_id = await _upsert_user(
+            email=email,
+            name=item["name"],
+            created_by=root_user_id,
+            phone=item.get("phone"),
+            locale=item.get("locale", "id"),
+            is_active=item.get("is_active", True),
+        )
         resolved[email] = user_id
 
         role_id = role_ids[item["role"]]

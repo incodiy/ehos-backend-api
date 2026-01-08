@@ -15,17 +15,53 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Permission, Role, RolesPermission
 
-# code: (name, scope_level)
-ROLES: dict[str, tuple[str, int]] = {
-    "ROOT_ADMIN": ("Corporate Admin (Root / Sovereign)", 0),
-    "CORP_EXEC": ("Corporate Executive", 1),
-    "CORP_AUDITOR": ("Corporate QA / Auditor", 1),
-    "REGIONAL_ROM": ("Regional ROM", 2),
-    "HOTEL_GM": ("Hotel General Manager", 3),
-    "HOTEL_HOD_TECH": ("Hotel HOD / Technical", 4),
-    "HOTEL_SALES": ("Hotel Sales", 4),
-    "HOTEL_FINANCE": ("Hotel Finance", 4),
-    "PUBLIC_CLIENT": ("Public Client", 5),
+# code: (name, scope_level, description)
+ROLES: dict[str, tuple[str, int, str]] = {
+    "ROOT_ADMIN": (
+        "Corporate Admin (Root / Sovereign)",
+        0,
+        "Root / Sovereign Super Admin — Otoritas tertinggi pengelola sistem, akun pengguna, dan perizinan global tanpa batasan.",
+    ),
+    "CORP_EXEC": (
+        "Corporate Executive",
+        1,
+        "Direksi & VP Operations — Visibilitas executive dashboard, heatmap 106 hotel, dan total omset pipeline MICE nasional.",
+    ),
+    "CORP_AUDITOR": (
+        "Corporate QA / Auditor",
+        1,
+        "Corporate QA Lead & Auditor — Otoritas penuh pelaksanaan audit, skoring checklist, dan verifikasi akhir tiket perbaikan CAPA.",
+    ),
+    "REGIONAL_ROM": (
+        "Regional ROM",
+        2,
+        "Regional Operations Manager — Pengawasan operasional kluster hotel wilayah dan penerima eskalasi tiket CAPA lewat SLA.",
+    ),
+    "HOTEL_GM": (
+        "Hotel General Manager",
+        3,
+        "Hotel General Manager — Delegated admin unit properti, persetujuan CAPA tahap pertama, dan approval proposal diskon dinas.",
+    ),
+    "HOTEL_HOD_TECH": (
+        "Hotel HOD / Technical",
+        4,
+        "Hotel HOD / Teknisi — Pelaksana perbaikan fisik lapangan unit dan pengunggah foto bukti After perbaikan CAPA.",
+    ),
+    "HOTEL_SALES": (
+        "Hotel Sales",
+        4,
+        "Sales Champion — Pengelola pipeline leads MICE, permohonan proposal penawaran pagu SBM, dan pencatatan komisi referral.",
+    ),
+    "HOTEL_FINANCE": (
+        "Hotel Finance",
+        4,
+        "Finance Unit — Pengelola dokumen dinas (SPK/NPWP/BAST/LPJ), pemantauan jadwal pelunasan tagihan kementerian.",
+    ),
+    "PUBLIC_CLIENT": (
+        "Public Client",
+        5,
+        "Klien Eksternal / Instansi — Pengaju permohonan penawaran paket MICE pemerintah (RFP) melalui frontpage portal publik.",
+    ),
 }
 
 # code: (module, action, description)
@@ -172,16 +208,17 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
 async def seed_rbac(session: AsyncSession) -> dict[str, uuid.UUID]:
     """Upsert roles/permissions/bindings. Returns {role_code: role_id}."""
     role_ids: dict[str, uuid.UUID] = {}
-    for code, (name, scope_level) in ROLES.items():
+    for code, (name, scope_level, description) in ROLES.items():
         stmt = pg_insert(Role).values(
             code=code,
             name=name,
             scope_level=scope_level,
             is_system=True,
+            description=description,
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=[Role.code],
-            set_={"name": name, "scope_level": scope_level},
+            set_={"name": name, "scope_level": scope_level, "description": description},
         )
         await session.execute(stmt)
         role_ids[code] = await session.scalar(select(Role.id).where(Role.code == code))
