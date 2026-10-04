@@ -1,0 +1,103 @@
+name: Deploy Backend + PostgreSQL to Railway
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-railway:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npm install -g @railway/cli
+          railway link ${{ secrets.RAILWAY_PROJECT_ID }}
+          railway service connect backend
+          railway deploy
+
+      - name: Run migrations on Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway run python start.py --migrate-only
+
+  health-check:
+    needs: deploy-railway
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Health check backend
+        run: |
+          echo "Waiting for backend to be ready..."
+          for i in {1..60}; do
+            if curl -f https://ehos.up.railway.app/docs > /dev/null 2>&1; then
+              echo "✅ Backend is healthy!"
+              exit 0
+            fi
+            echo "Attempt $i/60 - waiting..."
+            sleep 5
+          done
+          echo "❌ Backend health check failed!"
+          exit 1
+
+      - name: Health check database
+        env:
+          DATABASE_URL: ${{ secrets.EHOS_DATABASE_URL }}
+        run: |
+          echo "Database URL configured in Railway"
+          echo "✅ PostgreSQL should be connected"

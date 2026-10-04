@@ -44,9 +44,17 @@ def run_migrations():
 def main():
     print("🚀 EHOS Backend — Production Startup")
     
+    # Check for CLI arguments
+    import sys
+    migrate_only = "--migrate-only" in sys.argv
+    
     # 1. Run migrations (optional, non-blocking)
     print("📦 Running migrations (if DB available)...")
     run_migrations()
+    
+    if migrate_only:
+        print("✅ Migrations completed (--migrate-only). Exiting.")
+        return
     
     # 2. Run minimal seeding (optional, non-blocking)
     print("🌱 Running minimal seeding...")
