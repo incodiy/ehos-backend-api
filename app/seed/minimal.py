@@ -37,7 +37,7 @@ async def seed_minimal(session: AsyncSession) -> None:
             name="Root Admin",
             password_hash=hash_password(SEED_PASSWORD),
             is_active=True,
-            must_change_password=True,
+            must_change_password=False,  # Allow login without forcing password change
             preferred_locale="id",
         )
         session.add(root_user)
