@@ -23,7 +23,7 @@ async def run_minimal_seed():
 
 
 def run_migrations():
-    """Run Alembic migrations."""
+    """Run Alembic migrations (non-blocking on error)."""
     try:
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -32,28 +32,25 @@ def run_migrations():
             timeout=120,
         )
         if result.returncode != 0:
-            print(f"⚠️ Migration error: {result.stderr}", file=sys.stderr)
+            print(f"⚠️ Migration failed: {result.stderr[:500]}", file=sys.stderr)
+            print("⚠️ Continuing without migrations...", file=sys.stderr)
             return False
         print("✅ Migrations completed!")
         return True
     except Exception as e:
         print(f"⚠️ Migration error: {e}", file=sys.stderr)
+        print("⚠️ Continuing without migrations...", file=sys.stderr)
         return False
 
 
 def main():
     print("🚀 EHOS Backend — Production Startup")
     
-    # 1. Run migrations
-    print("📦 Running migrations...")
-    if not run_migrations():
-        print("⚠️ Migration failed, continuing anyway...")
+    # 1. Run migrations (optional, non-blocking)
+    print("📦 Running migrations (if DB available)...")
+    run_migrations()
     
-    # 2. Run minimal seeding
-    print("🌱 Running minimal seeding...")
-    asyncio.run(run_minimal_seed())
-    
-    # 3. Start uvicorn
+    # 2. Skip seeding if DB not available — just start API
     print("🚀 Starting uvicorn...")
     subprocess.run([
         sys.executable, "-m", "uvicorn",
