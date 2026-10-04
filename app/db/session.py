@@ -20,7 +20,11 @@ engine = create_async_engine(
     pool_size=10,
     max_overflow=20,
     echo=settings.debug,
-    connect_args={"ssl": "prefer"},  # Railway requires SSL, use prefer mode
+    connect_args={
+        "ssl": False,  # Disable SSL for Railway internal connection
+        "timeout": 10,
+        "command_timeout": 10,
+    },
 )
 
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
