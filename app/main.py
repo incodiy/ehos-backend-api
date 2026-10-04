@@ -9,6 +9,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.session import engine
+from app.seed.runner import run_seeders
 
 
 def run_migrations():
@@ -28,11 +29,23 @@ def run_migrations():
         print(f"⚠️ Migration error (non-blocking): {e}", file=sys.stderr)
 
 
+async def run_seed():
+    """Run data seeders on startup (idempotent — safe to run multiple times)."""
+    try:
+        print("🌱 Seeding database...")
+        await run_seeders()
+        print("✓ Seeding completed successfully")
+    except Exception as e:
+        print(f"⚠️ Seed error (non-blocking): {e}", file=sys.stderr)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
     print("🚀 Running database migrations...")
     run_migrations()
+    print("🌱 Running data seeders...")
+    await run_seed()
     yield
     await engine.dispose()
 

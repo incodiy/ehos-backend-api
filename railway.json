@@ -1,0 +1,30 @@
+{
+  "build": {
+    "builder": "dockerfile",
+    "buildCommand": "docker build -t ehos-backend-api .",
+    "watchPatterns": [
+      "app/**/*",
+      "alembic/**/*",
+      "pyproject.toml",
+      "Dockerfile"
+    ]
+  },
+  "deploy": {
+    "startCommand": "sh -c 'alembic upgrade head && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port 8080'",
+    "restartPolicyType": "on_failure",
+    "restartPolicyMaxRetries": 5,
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "port": 8080
+  },
+  "environment": {
+    "EHOS_ENVIRONMENT": "production",
+    "EHOS_DEBUG": "false",
+    "EHOS_PROJECT_NAME": "EHOS Backend API (Production)",
+    "EHOS_JWT_ALGORITHM": "HS256",
+    "EHOS_JWT_ACCESS_EXPIRE_MINUTES": "15",
+    "EHOS_JWT_REFRESH_EXPIRE_DAYS": "30",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1"
+  }
+}
