@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = True
 
-    database_url: str = "postgresql://ehos:ehos@localhost:5434/ehos"
+    database_url: str = "postgresql+asyncpg://ehos:ehos@localhost:5434/ehos"
     redis_url: str = "redis://localhost:6379/0"
 
     seed_data_dir: str = "../crm"

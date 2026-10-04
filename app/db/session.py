@@ -21,9 +21,7 @@ engine = create_async_engine(
     max_overflow=20,
     echo=settings.debug,
     connect_args={
-        "ssl": False,  # Disable SSL for Railway internal connection
-        "timeout": 10,
-        "command_timeout": 10,
+        "ssl": False,
     },
 )
 
