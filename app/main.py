@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import subprocess
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +11,28 @@ from app.core.logging import configure_logging
 from app.db.session import engine
 
 
+def run_migrations():
+    """Run Alembic migrations on startup."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            print(f"⚠️ Migration warning: {result.stderr}", file=sys.stderr)
+        else:
+            print("✓ Migrations completed successfully")
+    except Exception as e:
+        print(f"⚠️ Migration error (non-blocking): {e}", file=sys.stderr)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    print("🚀 Running database migrations...")
+    run_migrations()
     yield
     await engine.dispose()
 
