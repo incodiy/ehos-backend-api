@@ -1,63 +1,86 @@
 # CI/CD Workflow Documentation
 
-## Deploy Backend + PostgreSQL to Railway
+## Build Backend Docker Image
 
 Workflow: `.github/workflows/deploy.yml`
 
 ### What it does:
-1. **Build Docker image** on push to `main`
+1. **Build Docker image** on every push to `main`
 2. **Push to GHCR** (GitHub Container Registry)
-3. **Deploy to Railway** backend service
-4. **Run migrations** automatically
-5. **Health check** backend API
+3. ✅ That's it! Manual deployment to Railway from there
 
-### Prerequisites (GitHub Secrets):
+### GitHub Actions Workflow
 
-Set these in GitHub repo Settings → Secrets and variables → Actions:
-
-1. **RAILWAY_TOKEN** — Railway API token
-   - Go to Railway → Account Settings → API Tokens → Create
-   - Copy token to GitHub Secrets as `RAILWAY_TOKEN`
-
-2. **RAILWAY_PROJECT_ID** — Railway project ID
-   - Find in Railway dashboard URL: `https://railway.app/project/{PROJECT_ID}`
-   - Add to GitHub Secrets as `RAILWAY_PROJECT_ID`
-
-3. **EHOS_DATABASE_URL** — PostgreSQL connection string
-   - Format: `postgresql://postgres:{password}@{host}:{port}/{database}`
-   - Set in Railway backend service → Variables → `EHOS_DATABASE_URL`
-   - (Can also add to GitHub Secrets if needed for logging)
-
-### Environment Variables (Railway):
-
-Set these in Railway backend service → Variables:
-
-- `EHOS_DATABASE_URL` = `postgresql://postgres:PASSWORD@postgres.railway.internal:5432/railway`
-- `EHOS_ENVIRONMENT` = `production`
-- `EHOS_DEBUG` = `false`
-- `EHOS_JWT_SECRET_KEY` = (strong random key)
-
-### Trigger Deployment:
-
-Just push to `main`:
+Automatically triggers on push to `main`:
 ```bash
 git add .
 git commit -m "feat: something"
 git push origin main
 ```
 
-Workflow runs automatically. Check GitHub Actions tab for logs.
+Image will be available at: `ghcr.io/incodiy/ehos-backend-api:main`
 
-### Troubleshooting:
+Check workflow status: https://github.com/incodiy/ehos-backend-api/actions
 
-**Workflow fails at "Deploy to Railway" step:**
-- Check `RAILWAY_TOKEN` and `RAILWAY_PROJECT_ID` in GitHub Secrets
-- Ensure Railway backend service name is `backend`
+---
 
-**Migrations fail:**
-- Check logs: GitHub Actions → deploy-railway job → "Run migrations on Railway" step
-- Verify `EHOS_DATABASE_URL` is set in Railway backend Variables
+## Manual Railway Deployment (Local)
 
-**Health check fails:**
-- Wait a few minutes for backend to fully start
-- Check Railway backend logs: https://railway.app/project/{PROJECT_ID}
+If you want to deploy directly to Railway from your machine:
+
+### Prerequisites:
+1. **Install Railway CLI:**
+   ```bash
+   npm install -g @railway/cli
+   ```
+
+2. **Login to Railway:**
+   ```bash
+   railway login
+   ```
+
+3. **Link to project:**
+   ```bash
+   railway link
+   # Select ehos-backend-api project
+   ```
+
+### Deploy:
+```bash
+railway up
+# Selects backend service or prompts to choose
+```
+
+### Run migrations after deploy:
+```bash
+railway run python start.py --migrate-only
+```
+
+---
+
+## Environment Variables (Railway)
+
+Set these in Railway backend service → Variables:
+
+- `EHOS_DATABASE_URL` = `postgresql://postgres:{PASSWORD}@postgres.railway.internal:5432/railway`
+- `EHOS_ENVIRONMENT` = `production`
+- `EHOS_DEBUG` = `false`
+- `EHOS_JWT_SECRET_KEY` = (strong random key)
+
+---
+
+## Troubleshooting
+
+**Build fails in GitHub Actions:**
+- Check workflow logs: https://github.com/incodiy/ehos-backend-api/actions
+- Common issues: Docker build error, GHCR auth issue
+
+**Manual deployment fails (Railway CLI):**
+- Verify token: `railway login` and re-authenticate
+- Check project link: `railway link`
+- Ensure backend service exists in Railway project
+
+**Backend crashes after deploy:**
+- Check Railway logs: Dashboard → Backend service → Logs
+- Verify `EHOS_DATABASE_URL` is set
+- Check if PostgreSQL is running and accessible

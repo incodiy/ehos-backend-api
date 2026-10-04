@@ -1,4 +1,4 @@
-name: Deploy Backend + PostgreSQL to Railway
+name: Build and Push Backend Image
 
 on:
   push:
@@ -10,7 +10,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,42 +51,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy-railway:
-    needs: build-and-deploy
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Railway via CLI
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      - name: Image built and pushed ✅
         run: |
-          npm install -g @railway/cli
-          railway up --service backend --detach
-
-  health-check:
-    needs: deploy-railway
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Wait for backend deployment
-        run: sleep 30
-
-      - name: Health check backend
-        run: |
-          echo "Checking backend health..."
-          for i in {1..30}; do
-            if curl -sf https://ehos.up.railway.app/docs > /dev/null 2>&1; then
-              echo "✅ Backend is healthy!"
-              exit 0
-            fi
-            echo "Attempt $i/30 - waiting..."
-            sleep 5
-          done
-          echo "⚠️ Backend health check timed out (may still be starting)"
-          exit 0
+          echo "✅ Docker image successfully pushed to GHCR"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          echo ""
+          echo "Next: Deploy manually from Railway dashboard or via Railway CLI locally"
