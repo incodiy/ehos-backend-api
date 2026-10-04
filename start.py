@@ -7,6 +7,7 @@ Used by Railway to ensure proper initialization order.
 import asyncio
 import subprocess
 import sys
+import os
 
 from app.db.session import SessionLocal
 from app.seed.minimal import seed_minimal
@@ -23,23 +24,20 @@ async def run_minimal_seed():
 
 
 def run_migrations():
-    """Run Alembic migrations (non-blocking on error)."""
+    """Run Alembic migrations in-process (non-blocking on error)."""
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            print(f"⚠️ Migration failed: {result.stderr[:500]}", file=sys.stderr)
-            print("⚠️ Continuing without migrations...", file=sys.stderr)
-            return False
+        # Change to script dir to find alembic.ini
+        os.chdir(os.path.dirname(os.path.abspath(__file__)))
+        
+        from alembic.config import Config
+        from alembic import command
+        
+        cfg = Config("alembic.ini")
+        command.upgrade(cfg, "head")
         print("✅ Migrations completed!")
         return True
     except Exception as e:
-        print(f"⚠️ Migration error: {e}", file=sys.stderr)
-        print("⚠️ Continuing without migrations...", file=sys.stderr)
+        print(f"⚠️ Migration error (non-blocking): {e}", file=sys.stderr)
         return False
 
 
@@ -50,7 +48,14 @@ def main():
     print("📦 Running migrations (if DB available)...")
     run_migrations()
     
-    # 2. Skip seeding if DB not available — just start API
+    # 2. Run minimal seeding (optional, non-blocking)
+    print("🌱 Running minimal seeding...")
+    try:
+        asyncio.run(run_minimal_seed())
+    except Exception as e:
+        print(f"⚠️ Seeding skipped: {e}", file=sys.stderr)
+    
+    # 3. Start uvicorn
     print("🚀 Starting uvicorn...")
     subprocess.run([
         sys.executable, "-m", "uvicorn",
