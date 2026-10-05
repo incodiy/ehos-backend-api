@@ -4,18 +4,20 @@ import asyncio
 import sys
 
 from app.db.session import SessionLocal
-from app.seed.minimal import seed_minimal
+from app.seed.full_demo import seed_full_demo
 
 
 async def main():
-    """Run minimal seeder."""
+    """Run full demo seeder."""
     try:
         async with SessionLocal() as session:
-            await seed_minimal(session)
-            print("✅ Seeding successful!")
+            await seed_full_demo(session)
+            print("✅ Full seeding successful!")
             return 0
     except Exception as e:
         print(f"❌ Seeding failed: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         return 1
 
 
