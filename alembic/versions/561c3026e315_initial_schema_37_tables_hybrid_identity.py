@@ -179,7 +179,7 @@ def upgrade() -> None:
     sa.Column('region_id', sa.BigInteger(), nullable=False),
     sa.Column('province_id', sa.BigInteger(), nullable=False),
     sa.Column('city', sa.String(length=100), nullable=True),
-    sa.Column('geo', geoalchemy2.types.Geography(geometry_type='POINT', srid=4326, dimension=2, spatial_index=False, from_text='ST_GeogFromText', name='geography'), nullable=True),
+    sa.Column('geo', sa.String(length=100), nullable=True),  # Disabled PostGIS for Railway: lat,lng as string
     sa.Column('geofence_radius_meters', sa.Integer(), nullable=False),
     sa.Column('mice_facilities', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('gm_id', sa.BigInteger(), nullable=True),
@@ -199,7 +199,7 @@ def upgrade() -> None:
     sa.UniqueConstraint('code', name=op.f('uq_hotels_code')),
     sa.UniqueConstraint('uuid', name=op.f('uq_hotels_uuid'))
     )
-    op.create_index('idx_hotels_geo', 'hotels', ['geo'], unique=False, postgresql_using='gist')
+    # op.create_index('idx_hotels_geo', 'hotels', ['geo'], unique=False, postgresql_using='gist')  # Disabled PostGIS
     op.create_index('ix_hotels_brand', 'hotels', ['brand_id'], unique=False)
     op.create_index('ix_hotels_mice_facilities', 'hotels', ['mice_facilities'], unique=False, postgresql_using='gin')
     op.create_index('ix_hotels_region', 'hotels', ['region_id'], unique=False)
