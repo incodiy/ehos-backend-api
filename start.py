@@ -23,6 +23,18 @@ async def run_minimal_seed():
         print(f"⚠️ Seeding error (non-blocking): {e}", file=sys.stderr)
 
 
+async def run_full_seed(seed_func):
+    """Run full seeding."""
+    try:
+        async with SessionLocal() as session:
+            await seed_func(session)
+            print("✅ Full seeding successful!")
+    except Exception as e:
+        print(f"⚠️ Full seeding error (non-blocking): {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+
+
 def run_migrations():
     """Run Alembic migrations in-process (non-blocking on error)."""
     try:
@@ -47,6 +59,7 @@ def main():
     # Check for CLI arguments
     import sys
     migrate_only = "--migrate-only" in sys.argv
+    skip_seed = "--skip-seed" in sys.argv
     
     # 1. Run migrations (optional, non-blocking)
     print("📦 Running migrations (if DB available)...")
@@ -56,12 +69,14 @@ def main():
         print("✅ Migrations completed (--migrate-only). Exiting.")
         return
     
-    # 2. Run minimal seeding (optional, non-blocking)
-    print("🌱 Running minimal seeding...")
-    try:
-        asyncio.run(run_minimal_seed())
-    except Exception as e:
-        print(f"⚠️ Seeding skipped: {e}", file=sys.stderr)
+    # 2. Run full demo seeding (optional, non-blocking)
+    if not skip_seed:
+        print("🌱 Running full demo seeding...")
+        try:
+            from app.seed.full_demo import seed_full_demo
+            asyncio.run(run_full_seed(seed_full_demo))
+        except Exception as e:
+            print(f"⚠️ Seeding skipped: {e}", file=sys.stderr)
     
     # 3. Start uvicorn
     print("🚀 Starting uvicorn...")
