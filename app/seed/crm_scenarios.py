@@ -34,6 +34,7 @@ VARIANTS = {
     "SBAI": (1, 2, 4, 5),
     "ZHBA": (2, 3, 6),
     "SQYO": (0, 1, 5),
+    "SBJKT": (0, 1, 3, 4, 5),
 }
 
 LOST_REASONS = [
@@ -149,8 +150,8 @@ async def seed_crm_scenarios(session: AsyncSession, resolved: dict[str, uuid.UUI
     lead_ids: list[uuid.UUID] = []
     for code in sorted(used_codes):
         hotel = hotels[code]
-        owner_email = "sales.cws@ehos.local" if code == "CWS" else "sales.tele@ehos.local"
-        owner_id = resolved[owner_email]
+        owner_email = "sales.cws@ehos.local" if code == "CWS" else ("sales.tele@ehos.local" if "sales.tele@ehos.local" in resolved else "sales.cws@ehos.local")
+        owner_id = resolved.get(owner_email) or actor_id
         variants = VARIANTS[code]
         created[code] = 0
         for i, variant in enumerate(variants, start=1):
@@ -277,9 +278,9 @@ async def seed_crm_referrals(session: AsyncSession, resolved: dict[str, uuid.UUI
         from_hotel = hotels[cfg["from_code"]]
         to_hotel = hotels[cfg["to_code"]]
         owner_id = (
-            resolved["sales.cws@ehos.local"]
+            resolved.get("sales.cws@ehos.local")
             if cfg["from_code"] == "CWS"
-            else resolved["sales.tele@ehos.local"]
+            else (resolved.get("sales.tele@ehos.local") or resolved.get("sales.cws@ehos.local") or actor_id)
         )
         lead_id = await _upsert_lead(
             session,

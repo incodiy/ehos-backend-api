@@ -40,6 +40,7 @@ SCENARIO_CLIENT_IDS = {
     "BORDERLINE_PASS": uuid.UUID("11111111-0000-4000-8000-000000000004"),
     "CRITICAL_FAIL": uuid.UUID("11111111-0000-4000-8000-000000000005"),
     "SYNC_CONFLICT": uuid.UUID("11111111-0000-4000-8000-000000000006"),
+    "SBJKT_PASS": uuid.UUID("11111111-0000-4000-8000-000000000007"),
 }
 
 
@@ -313,5 +314,31 @@ async def seed_audit_scenarios(
                 resolved_at=now,
             )
         )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 7. SCENARIO SBJKT PUBLISHED: Sesi audit lulus di Hotel SBJKT
+    # ──────────────────────────────────────────────────────────────────────────
+    sbjkt_id = hotels.get("SBJKT") or cws_id
+    gm_tpl = templates.get("GM") or list(templates.values())[0]
+    s_sbjkt = AuditSession(
+        client_id=SCENARIO_CLIENT_IDS["SBJKT_PASS"],
+        hotel_id=sbjkt_id,
+        template_id=gm_tpl.id,
+        department=gm_tpl.department,
+        audit_type="FULL",
+        status="PUBLISHED",
+        score_percent=88.5,
+        passed=True,
+        auditor_id=auditor_id,
+        date_start=today - timedelta(days=14),
+        date_end=today - timedelta(days=12),
+        submitted_at=now - timedelta(days=12),
+        published_at=now - timedelta(days=11),
+        origin="SYSTEM",
+        sync_status="SYNCED",
+        created_by=auditor_id,
+        updated_by=auditor_id,
+    )
+    session.add(s_sbjkt)
 
     await session.commit()

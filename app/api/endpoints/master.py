@@ -1106,3 +1106,26 @@ async def list_provinces(
         )
     ).all()
     return Envelope(data=[ProvinceOut.model_validate(p) for p in provinces])
+
+
+@router.post("/master/seed-demo")
+async def trigger_demo_seed(
+    current: CurrentUser,
+    session: DbSession,
+) -> dict:
+    """Trigger or re-run full demonstration data seeding across all domains."""
+    from app.seed.full_demo import seed_full_demo
+    import traceback
+    try:
+        await seed_full_demo(session)
+        return {
+            "success": True,
+            "message": "Full demo seeding executed successfully",
+        }
+    except Exception as exc:
+        trace = traceback.format_exc()
+        return {
+            "success": False,
+            "error": str(exc),
+            "traceback": trace,
+        }

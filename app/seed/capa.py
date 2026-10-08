@@ -57,6 +57,10 @@ SCENARIOS: list[dict[str, Any]] = [
      "priority": 1, "hotel_code": "SQYO"},
     {"n": 16, "status": "IN_PROGRESS", "level": 0, "due_offset_h": 24, "closed_offset_h": None,
      "priority": 2, "hotel_code": "CWS"},
+    {"n": 17, "status": "OPEN", "level": 0, "due_offset_h": 18, "closed_offset_h": None,
+     "priority": 1, "hotel_code": "SBJKT"},
+    {"n": 18, "status": "CLOSED", "level": 1, "due_offset_h": -30, "closed_offset_h": -4,
+     "priority": 2, "hotel_code": "SBJKT"},
 ]
 
 _CHAIN: dict[str, list[tuple[str | None, str, str]]] = {

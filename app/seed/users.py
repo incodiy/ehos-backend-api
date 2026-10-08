@@ -30,9 +30,9 @@ SEED_PASSWORD = "Ehos#2026!"
 
 # email -> (name, role_code, [hotel_codes], region-hotels, region, primary, is_active, locale, last_login)
 USERS: list[dict] = [
-    {"email": "root.admin@ehos.local", "name": "Root Admin", "role": "ROOT_ADMIN"},
-    {"email": "corp.exec@ehos.local", "name": "Corporate Executive", "role": "CORP_EXEC", "locale": "en"},
-    {"email": "corp.auditor@ehos.local", "name": "Corporate QA Auditing", "role": "CORP_AUDITOR"},
+    {"email": "root.admin@ehos.local", "name": "Root Admin", "role": "ROOT_ADMIN", "hotels": ["CWS"]},
+    {"email": "corp.exec@ehos.local", "name": "Corporate Executive", "role": "CORP_EXEC", "locale": "en", "hotels": ["CWS"]},
+    {"email": "corp.auditor@ehos.local", "name": "Corporate QA Auditing", "role": "CORP_AUDITOR", "hotels": ["CWS"]},
     {
         "email": "rom.jawa@ehos.local",
         "name": "ROM Jawa",
@@ -152,6 +152,21 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
     )
     resolved[root_email] = root_user_id
 
+    # Ensure Root Admin has CWS as primary active hotel
+    cws_hid = hotel_ids.get("CWS")
+    if cws_hid:
+        await session.execute(
+            pg_insert(UserHotelAssignment).values(
+                user_id=root_user_id,
+                hotel_id=cws_hid,
+                role_id=role_ids["ROOT_ADMIN"],
+                is_primary=True,
+            ).on_conflict_do_update(
+                index_elements=["user_id", "hotel_id", "role_id"],
+                set_={"is_primary": True},
+            )
+        )
+
     for item in USERS:
         email = item["email"]
         if email == root_email:
@@ -173,8 +188,8 @@ async def seed_users(session: AsyncSession, role_ids: dict[str, uuid.UUID]) -> d
             .on_conflict_do_nothing(index_elements=["user_id", "role_id"])
         )
 
-        if item.get("hotels") == "ALL_LEAD_HOTELS":
-            target_codes = sorted(code for code, hid in hotel_ids.items() if hid in lead_hotel_ids)
+        if item.get("hotels") == "ALL_LEAD_HOTELS" or item.get("hotels") == "ALL_HOTELS":
+            target_codes = sorted(hotel_ids.keys())
         else:
             target_codes = item.get("hotels", [])
 
