@@ -8,8 +8,8 @@ from geoalchemy2.elements import WKTElement
 from app.core.security import hash_password
 from app.models import (
     Brand,
-    ChecklistCategory,
     ChecklistItem,
+    ChecklistSection,
     ChecklistTemplate,
     Hotel,
     Province,
@@ -138,43 +138,50 @@ async def seed_users_minimal(session: AsyncSession, role_ids: dict, hotel_id: in
 
 async def seed_checklist_minimal(session: AsyncSession, creator_id: int) -> None:
     """Seed minimal checklist templates."""
-    existing = await session.scalar(select(ChecklistTemplate).where(ChecklistTemplate.code == "SB2025"))
+    existing = await session.scalar(
+        select(ChecklistTemplate).where(
+            ChecklistTemplate.department == "GM",
+            ChecklistTemplate.name == "Swiss-Belhotel Standard 2026",
+            ChecklistTemplate.version == "1.0",
+        )
+    )
     if existing:
         return
 
     template = ChecklistTemplate(
-        code="SB2025",
-        name="Swiss-Belhotel Standard 2025",
-        brand_code="SWB",
-        version=1,
-        status="ACTIVE",
-        created_by=creator_id,
+        department="GM",
+        name="Swiss-Belhotel Standard 2026",
+        version="1.0",
+        status="LOCKED",
+        published_by=creator_id,
     )
     session.add(template)
     await session.flush()
 
-    category = ChecklistCategory(
+    section = ChecklistSection(
         template_id=template.id,
-        code="FO",
+        code="SEC-FO",
         name="Front Office",
-        display_order=1,
+        sort_order=1,
     )
-    session.add(category)
+    session.add(section)
     await session.flush()
 
     items_data = [
-        {"code": "FO-001", "text": "Lobby bersih dan rapi", "weight": 5},
-        {"code": "FO-002", "text": "Staff berseragam lengkap", "weight": 3},
+        {"code": "FO-001", "question_text": "Lobby bersih dan rapi", "rubric_type": "TRAFFIC_LIGHT", "weight": 5.0, "max_score": 100.0},
+        {"code": "FO-002", "question_text": "Staff berseragam lengkap", "rubric_type": "TRAFFIC_LIGHT", "weight": 3.0, "max_score": 100.0},
     ]
 
     for idx, data in enumerate(items_data):
         session.add(
             ChecklistItem(
-                category_id=category.id,
+                section_id=section.id,
                 code=data["code"],
-                text=data["text"],
+                question_text=data["question_text"],
+                rubric_type=data["rubric_type"],
                 weight=data["weight"],
-                display_order=idx + 1,
+                max_score=data["max_score"],
+                sort_order=idx + 1,
             )
         )
 
