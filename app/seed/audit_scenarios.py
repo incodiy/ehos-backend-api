@@ -332,7 +332,6 @@ async def seed_audit_scenarios(
         auditor_id=auditor_id,
         date_start=today - timedelta(days=14),
         date_end=today - timedelta(days=12),
-        submitted_at=now - timedelta(days=12),
         published_at=now - timedelta(days=11),
         origin="SYSTEM",
         sync_status="SYNCED",
