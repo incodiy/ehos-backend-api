@@ -27,8 +27,8 @@ async def seed_master_minimal(session: AsyncSession) -> int:
     """Seed minimal master data without external files."""
     # Brands
     brands_data = [
-        {"code": "SWB", "name": "Swiss-Belhotel International", "tier": "UPSCALE"},
-        {"code": "SBR", "name": "Swiss-Belresidences", "tier": "UPSCALE"},
+        {"code": "SWB", "name": "Swiss-Belhotel International", "tier": "Upscale", "status": "ACTIVE"},
+        {"code": "SBR", "name": "Swiss-Belresidences", "tier": "Upscale", "status": "ACTIVE"},
     ]
     for data in brands_data:
         existing = await session.scalar(select(Brand).where(Brand.code == data["code"]))
@@ -38,8 +38,8 @@ async def seed_master_minimal(session: AsyncSession) -> int:
 
     # Regions
     regions_data = [
-        {"code": "WEST", "name": "Western Region"},
-        {"code": "EAST", "name": "Eastern Region"},
+        {"code": "WEST", "name": "Western Region", "status": "ACTIVE"},
+        {"code": "EAST", "name": "Eastern Region", "status": "ACTIVE"},
     ]
     for data in regions_data:
         existing = await session.scalar(select(Region).where(Region.code == data["code"]))
