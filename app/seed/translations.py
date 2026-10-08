@@ -138,13 +138,15 @@ async def seed_translations(session: AsyncSession, created_by) -> int:
     rows: list[dict] = []
 
     def _add(entity_type: str, entity_id, field: str, value: str) -> None:
+        if value is None or not str(value).strip():
+            return
         rows.append(
             {
                 "entity_type": entity_type,
                 "entity_id": entity_id,
                 "field": field,
                 "locale": "en",
-                "value": value,
+                "value": str(value).strip(),
                 "created_by": uid,
                 "updated_by": uid,
             }
@@ -199,13 +201,15 @@ async def seed_translations(session: AsyncSession, created_by) -> int:
 
     # ── Notification templates (task 7e — F-22, ERD §9 registry) ──
     def _add_lang(entity_type: str, entity_id, field: str, value: str, locale: str) -> None:
+        if value is None or not str(value).strip():
+            return
         rows.append(
             {
                 "entity_type": entity_type,
                 "entity_id": entity_id,
                 "field": field,
                 "locale": locale,
-                "value": value,
+                "value": str(value).strip(),
                 "created_by": uid,
                 "updated_by": uid,
             }

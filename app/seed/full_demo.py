@@ -414,7 +414,13 @@ async def seed_master_complete(session: AsyncSession) -> None:
             status="ACTIVE",
         ).on_conflict_do_update(
             index_elements=[Region.code],
-            set_={"name": reg_name, "status": "ACTIVE", "country": "Indonesia"},
+            set_={
+                "name": reg_name,
+                "status": "ACTIVE",
+                "country": "Indonesia",
+                "sales_region": reg_name,
+                "ecommerce_region": "Tier 1",
+            },
         )
         await session.execute(stmt_reg)
     await session.flush()
