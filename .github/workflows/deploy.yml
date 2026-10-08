@@ -55,5 +55,13 @@ jobs:
         run: |
           echo "✅ Docker image successfully pushed to GHCR"
           echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
-          echo ""
-          echo "Next: Deploy manually from Railway dashboard or via Railway CLI locally"
+
+      - name: Trigger Railway Redeploy (if webhook configured)
+        if: env.RAILWAY_DEPLOY_WEBHOOK != ''
+        env:
+          RAILWAY_DEPLOY_WEBHOOK: ${{ secrets.RAILWAY_DEPLOY_WEBHOOK }}
+        run: |
+          echo "Triggering Railway deployment webhook..."
+          curl -s -S -X POST "$RAILWAY_DEPLOY_WEBHOOK"
+          echo "Railway deployment triggered ✅"
+
